@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import { JetBrains_Mono } from 'next/font/google'
+import { LiquidBackground } from '@/components/liquid-background'
 import { QueryProvider } from '@/components/query-provider'
 import { ThemeProvider } from '@/components/theme-provider'
-import { DotPattern } from '@/components/ui/dot-pattern'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
@@ -27,19 +27,17 @@ export default function RootLayout({
 	children: React.ReactNode
 }>) {
 	return (
-		<>
-			<html lang="pt-BR" suppressHydrationWarning>
-				<head />
-				<body className={`${jetbrainsMono.variable} relative`}>
-					<QueryProvider>
-						<ThemeProvider attribute="class" defaultTheme="system">
-							<DotPattern className="fixed -z-10 text-foreground/15" />
-							{children}
-							<Toaster />
-						</ThemeProvider>
-					</QueryProvider>
-				</body>
-			</html>
-		</>
+		<html lang="pt-BR" suppressHydrationWarning>
+			<head />
+			<body className={`${jetbrainsMono.variable} relative`}>
+				<QueryProvider>
+					<ThemeProvider attribute="class" defaultTheme="system">
+						<LiquidBackground />
+						{children}
+						<Toaster />
+					</ThemeProvider>
+				</QueryProvider>
+			</body>
+		</html>
 	)
 }

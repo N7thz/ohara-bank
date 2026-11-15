@@ -44,3 +44,25 @@ export function useDeleteBankAccount() {
 		onSuccess: invalidate,
 	})
 }
+
+export interface BalancePoint {
+	/** AAAA-MM-DD (UTC) */
+	date: string
+	/** Saldo no fim do dia */
+	balance: number
+}
+
+/** Saldo no fim dos dias com movimento; vazio nas contas sem saldo */
+export function useBalanceHistory(accountId: string | null) {
+	return useQuery({
+		// Fica sob ['finance', 'bank-accounts']: importar ou apagar extrato recarrega
+		queryKey: ['finance', 'bank-accounts', accountId, 'balance-history'],
+		queryFn: async () => {
+			const { data } = await api.get<BalancePoint[]>(
+				`/finance/accounts/${accountId}/balance-history`,
+			)
+			return data
+		},
+		enabled: accountId !== null,
+	})
+}

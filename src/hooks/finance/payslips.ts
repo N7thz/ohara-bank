@@ -21,6 +21,7 @@ export interface Payslip {
 	employerCnpj: string
 	/** Primeiro dia do mês de competência (UTC) */
 	competence: string
+	kind: 'MONTHLY' | 'THIRTEENTH' | 'VACATION'
 	grossAmount: number
 	deductionsAmount: number
 	netAmount: number

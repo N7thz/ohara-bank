@@ -23,12 +23,8 @@ function statusMessage(totp: LoginTotpStatus) {
 			return 'O autenticador não foi confirmado. Conclua a configuração na tela de Segurança.'
 		case 'not-configured':
 			return 'Nenhum autenticador configurado. Entre com a passkey.'
-		case 'connected': {
-			const left = totp.maxAttempts - totp.failedAttempts
-			return totp.failedAttempts > 0
-				? `${left} ${left === 1 ? 'tentativa restante' : 'tentativas restantes'} antes do bloqueio.`
-				: null
-		}
+		case 'connected':
+			return null
 	}
 }
 

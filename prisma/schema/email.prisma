@@ -1,0 +1,41 @@
+/// Quais e-mails automáticos o usuário recebe
+model EmailSettings {
+  userId           String   @id
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billReminders    Boolean  @default(true)
+  /// Avisa de contas que vencem em até tantos dias
+  billReminderDays Int      @default(3)
+  weeklySummary    Boolean  @default(true)
+  monthlySummary   Boolean  @default(true)
+  budgetAlerts     Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@map("email_settings")
+}
+
+/// E-mails enviados (ou que falharam); a chave evita mandar o mesmo aviso duas vezes
+model EmailLog {
+  id      String   @id @default(cuid())
+  userId  String
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind    String
+  subject String
+  /// Avisos cobertos por este e-mail, ex.: "weekly:2026-10-19", "bill:<id>:2026-10:soon"
+  keys    String[]
+  error   String?
+  sentAt  DateTime @default(now())
+
+  @@index([userId, sentAt])
+  @@map("email_log")
+}
+
+/// Chave de aviso reservada antes do envio: impede dois envios do mesmo aviso
+model EmailKeyClaim {
+  userId    String
+  key       String
+  claimedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, key])
+  @@map("email_key_claim")
+}

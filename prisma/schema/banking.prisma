@@ -1,0 +1,32 @@
+model BankAccount {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankName     String
+  number       String
+  type         String
+  balance      Decimal?      @db.Decimal(14, 2)
+  balanceDate  DateTime?
+  transactions Transaction[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([userId, bankName, number])
+  @@map("bank_account")
+}
+
+model Transaction {
+  id          String           @id @default(cuid())
+  accountId   String
+  account     BankAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  externalId  String
+  date        DateTime
+  amount      Decimal          @db.Decimal(14, 2)
+  description String
+  createdAt   DateTime         @default(now())
+  tags        TransactionTag[]
+
+  @@unique([accountId, externalId])
+  @@index([accountId, date])
+  @@map("transaction")
+}

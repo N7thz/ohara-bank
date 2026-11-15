@@ -74,7 +74,18 @@ export function PeriodSummaryTable({
 									onClick={() => onSelect(period.start)}
 								>
 									<TableCell className="pl-4 font-medium">
-										{formatPeriodLong(granularity, period)}
+										{/* Botão para teclado e leitor de tela; o clique na linha toda continua valendo */}
+										<button
+											type="button"
+											aria-pressed={isSelected}
+											onClick={(event) => {
+												event.stopPropagation()
+												onSelect(period.start)
+											}}
+											className="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+										>
+											{formatPeriodLong(granularity, period)}
+										</button>
 									</TableCell>
 									<TableCell className="text-right tabular-nums">
 										{formatCurrency(period.income)}
@@ -85,7 +96,7 @@ export function PeriodSummaryTable({
 									<TableCell
 										className={cn(
 											'text-right font-medium tabular-nums',
-											period.count > 0 && (balance >= 0 ? 'text-green-600' : 'text-red-500'),
+											period.count > 0 && (balance >= 0 ? 'text-positive' : 'text-negative'),
 										)}
 									>
 										{formatCurrency(balance)}

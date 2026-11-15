@@ -9,7 +9,17 @@ import { financeKeys, useInvalidateFinance } from './keys'
 export type DebtKind = 'FIXED' | 'RECURRING' | 'INSTALLMENT'
 
 /** Situação da dívida no mês atual */
-export type DebtMonthStatus = 'paid' | 'partial' | 'pending' | 'late' | 'not-started' | 'finished'
+export type DebtMonthStatus =
+	| 'paid'
+	| 'partial'
+	| 'pending'
+	| 'late'
+	| 'skipped'
+	| 'not-started'
+	| 'finished'
+
+/** Situação do mês marcada à mão */
+export type DebtOverrideStatus = 'PAID' | 'PENDING' | 'SKIPPED'
 
 export interface Debt {
 	id: string
@@ -19,6 +29,8 @@ export interface Debt {
 	amount: number
 	dueDay: number | null
 	installments: number | null
+	/** Parcelas pagas que não aparecem nas transações */
+	paidBefore: number
 	/** Primeiro dia do mês (AAAA-MM-DD, UTC) */
 	startMonth: string
 	/** Mês da última parcela; null nas fixas e recorrentes */
@@ -30,6 +42,10 @@ export interface Debt {
 	remainingAmount: number | null
 	paidThisMonth: number
 	status: DebtMonthStatus
+	/** Situação calculada pelas transações, antes da marcada à mão */
+	autoStatus: DebtMonthStatus
+	/** Marcada à mão no mês atual; null = automática */
+	statusOverride: DebtOverrideStatus | null
 	lastPayment: { date: string; amount: number; description: string } | null
 	paymentCount: number
 	/** Meses com pagamento desde o início: viram as parcelas pagas ao parcelar */
@@ -71,6 +87,8 @@ export interface DebtInput {
 	amount: number
 	dueDay: number | null
 	installments: number | null
+	/** Parcelas pagas que não aparecem nas transações */
+	paidBefore: number
 	/** AAAA-MM */
 	startMonth: string
 	pattern: string
@@ -108,5 +126,38 @@ export function useDeleteDebt() {
 			await api.delete(`/finance/debts/${id}`)
 		},
 		onSuccess: invalidate,
+	})
+}
+
+export function useSetDebtStatus() {
+	const invalidate = useInvalidateFinance()
+
+	return useMutation({
+		mutationFn: async ({ id, status }: { id: string; status: DebtOverrideStatus | null }) => {
+			await api.put(`/finance/debts/${id}/status`, { status })
+		},
+		onSuccess: invalidate,
+	})
+}
+
+export interface DebtPatternPreview {
+	/** Saídas que casam com o trecho */
+	count: number
+	/** As 3 mais recentes; amount positivo */
+	recent: { id: string; date: string; amount: number; description: string }[]
+}
+
+/** Quais saídas casam com o trecho; só consulta com 3 caracteres ou mais */
+export function useDebtPatternPreview(pattern: string, startMonth: string) {
+	return useQuery({
+		queryKey: [...financeKeys.debts(), 'preview', pattern, startMonth],
+		queryFn: async () => {
+			const { data } = await api.get<DebtPatternPreview>('/finance/debts/preview', {
+				params: { pattern, startMonth },
+			})
+			return data
+		},
+		enabled: pattern.length >= 3,
+		placeholderData: (previous) => previous,
 	})
 }

@@ -33,6 +33,11 @@ export async function saveStatement(userId: string, statement: ParsedStatement) 
 	// Regras de tag valem só para as transações novas: uma tag removida à mão não volta
 	await applyTagRules({ userId, transactionIds: created.map((tx) => tx.id) })
 
+	// Sobraram sem tag: é o que a pessoa ainda precisa conferir
+	const untagged = await prisma.transaction.count({
+		where: { id: { in: created.map((tx) => tx.id) }, tags: { none: {} } },
+	})
+
 	const imported = created.length
-	return { account, imported, duplicates: statement.transactions.length - imported }
+	return { account, imported, duplicates: statement.transactions.length - imported, untagged }
 }

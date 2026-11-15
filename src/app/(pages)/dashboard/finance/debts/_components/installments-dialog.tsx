@@ -22,8 +22,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { Debt } from '@/hooks/finance/debts'
 import { useSaveDebt } from '@/hooks/finance/debts'
+import { currencyInput, formatCurrencyInput, parseCurrency } from '@/lib/currency-input'
 import { formatCurrency, formatPeriodShort } from '@/lib/format'
-import { currencyInput, formatCurrencyInput, parseCurrency } from './currency-input'
 
 const installmentsSchema = z.object({
 	pending: z
@@ -76,7 +76,7 @@ export function InstallmentsDialog({ debt, onClose }: InstallmentsDialogProps) {
 		if (!debt) return
 		const pending =
 			debt.kind === 'INSTALLMENT' && debt.installments
-				? String(Math.max(0, debt.installments - debt.paidMonths))
+				? String(Math.max(0, debt.installments - debt.paidBefore - debt.paidMonths))
 				: ''
 		reset({ pending, amount: currencyInput(debt.amount) })
 	}, [debt, reset])
@@ -84,7 +84,9 @@ export function InstallmentsDialog({ debt, onClose }: InstallmentsDialogProps) {
 	const pendingField = register('pending')
 	const amountField = register('amount')
 
-	const paid = debt?.paidMonths ?? 0
+	// Parcelas pagas à mão (só na parcelada) mais os meses com pagamento
+	const paidBefore = debt?.kind === 'INSTALLMENT' ? debt.paidBefore : 0
+	const paid = paidBefore + (debt?.paidMonths ?? 0)
 	const pendingValue = watch('pending')
 	const pending = /^\d+$/.test(pendingValue) ? Number(pendingValue) : null
 	const total = pending === null ? null : paid + pending
@@ -105,6 +107,7 @@ export function InstallmentsDialog({ debt, onClose }: InstallmentsDialogProps) {
 				amount: parseCurrency(data.amount),
 				dueDay: debt.dueDay,
 				installments,
+				paidBefore,
 				startMonth: debt.startMonth.slice(0, 7),
 				pattern: debt.pattern,
 			})
@@ -137,7 +140,7 @@ export function InstallmentsDialog({ debt, onClose }: InstallmentsDialogProps) {
 					<p className="rounded-lg bg-muted px-3 py-2 text-sm">
 						{paid === 0
 							? 'Nenhum pagamento achado ainda.'
-							: `${paid} ${paid === 1 ? 'parcela paga' : 'parcelas pagas'} (meses com pagamento desde ${debt ? formatPeriodShort('month', { start: debt.startMonth, end: debt.startMonth }) : ''}).`}
+							: `${paid} ${paid === 1 ? 'parcela paga' : 'parcelas pagas'} (${paidBefore > 0 ? `${paidBefore} informadas à mão + ` : ''}meses com pagamento desde ${debt ? formatPeriodShort('month', { start: debt.startMonth, end: debt.startMonth }) : ''}).`}
 					</p>
 
 					<div className="grid grid-cols-2 gap-4">

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
+import { requireSession } from '@/lib/api-session'
 import { prisma } from '@/lib/prisma'
 import { applyTagRules } from '@/lib/tags'
 
@@ -10,10 +10,8 @@ const ruleSchema = z.object({
 
 /** Cria a regra e já aplica nas transações existentes */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
 	const { id } = await params
 	const tag = await prisma.tag.findUnique({ where: { id } })

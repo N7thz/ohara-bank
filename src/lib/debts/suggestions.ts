@@ -1,5 +1,6 @@
+import { divideMoney, sumMoney, toMoney, toReais } from '@/lib/money'
 import type { DebtKind } from '../../../prisma/generated/client'
-import { monthKey, round } from './match'
+import { monthKey } from './match'
 
 // Gastos que se repetem e ainda não são dívida: sugestões da página de Dívidas
 
@@ -48,7 +49,7 @@ export function suggestRecurring(transactions: { date: Date; amount: number; tex
 	return [...groups.values()]
 		.map((group) => {
 			const months = new Set(group.map((tx) => monthKey(tx.date))).size
-			const total = group.reduce((sum, tx) => sum + tx.amount, 0)
+			const total = sumMoney(group.map((tx) => toMoney(tx.amount)))
 			const amounts = group.map((tx) => tx.amount)
 			const min = Math.min(...amounts)
 			const max = Math.max(...amounts)
@@ -65,7 +66,7 @@ export function suggestRecurring(transactions: { date: Date; amount: number; tex
 				name: nameFromPattern(pattern),
 				pattern,
 				kind: (max - min <= max * 0.01 ? 'FIXED' : 'RECURRING') as DebtKind,
-				amount: round(total / months),
+				amount: toReais(divideMoney(total, months)),
 				dueDay,
 				months,
 				count: group.length,

@@ -3,13 +3,14 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { format, parse } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ReceiptIcon, SearchIcon, XIcon } from 'lucide-react'
+import { DownloadIcon, ReceiptIcon, SearchIcon, XIcon } from 'lucide-react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import { HeroMetric } from '@/components/finance/hero-metric'
 import { IncomeExpenseChart } from '@/components/finance/income-expense-chart'
 import { PageHeader } from '@/components/page-header'
 import { PageSection } from '@/components/page-section'
+import { QueryError } from '@/components/query-error'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
@@ -34,13 +35,20 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useBankAccounts } from '@/hooks/finance/accounts'
 import { useTags } from '@/hooks/finance/tags'
 import type { TransactionFilters } from '@/hooks/finance/transactions'
-import { transactionsQuery, useTransactions } from '@/hooks/finance/transactions'
+import {
+	transactionsQuery,
+	useDailySpending,
+	useTransactions,
+	useTransactionsOverview,
+} from '@/hooks/finance/transactions'
 import { formatCurrency, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { SpendingByTag, UNTAGGED } from './spending-by-tag'
+import { SpendingHeatmap } from './spending-heatmap'
 import { PAGE_SIZE_OPTIONS, TablePagination } from './table-pagination'
 import { TagManagerSheet } from './tag-manager-sheet'
 import { TransactionTagsCell } from './transaction-tags-cell'
+import { WeekdaySpending } from './weekday-spending'
 
 const ALL = 'all'
 const DEFAULT_PAGE_SIZE = 50
@@ -129,9 +137,35 @@ export function TransactionsView() {
 		...(tagId !== ALL && { tagId }),
 	}
 
+	// Filtros sem a página: a chave do resumo não muda ao trocar de página
+	const { page: _page, pageSize: _pageSize, ...overviewFilters } = filters
+
+	// Mesmos filtros, sem paginação
+	const exportHref = `/api/finance/transactions/export?${new URLSearchParams(
+		Object.entries(filters)
+			.filter(([key]) => key !== 'page' && key !== 'pageSize')
+			.map(([key, value]) => [key, String(value)]),
+	)}`
+
 	const { data: accounts = [] } = useBankAccounts()
 	const { data: tags = [] } = useTags()
-	const { data, isLoading, isError, isPlaceholderData } = useTransactions(filters)
+	const { data, isLoading, isError, isPlaceholderData, refetch, isRefetching } =
+		useTransactions(filters)
+	const { data: overview } = useTransactionsOverview(overviewFilters)
+
+	// Saídas por dia, com os mesmos filtros (menos tipo e página)
+	const {
+		data: daily,
+		isError: dailyError,
+		isPlaceholderData: isDailyStale,
+		refetch: refetchDaily,
+		isRefetching: isRefetchingDaily,
+	} = useDailySpending({
+		...(accountId !== ALL && { accountId }),
+		...(month !== ALL && { month }),
+		...(q && { q }),
+		...(tagId !== ALL && { tagId }),
+	})
 
 	const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
 
@@ -155,11 +189,11 @@ export function TransactionsView() {
 	]
 	const monthItems = [
 		{ value: ALL, label: 'Todo o período' },
-		...(data?.months ?? []).map((value) => ({ value, label: formatMonth(value) })),
+		...(overview?.months ?? []).map((value) => ({ value, label: formatMonth(value) })),
 	]
 	// Só as tags que têm transação com a conta, o período e a busca atuais; a escolhida
 	// fica mesmo sem transação, para dar para desmarcar
-	const tagCounts = data?.tagCounts ?? {}
+	const tagCounts = overview?.tagCounts ?? {}
 	const tagItems = [
 		{ value: ALL, label: 'Todas as tags' },
 		{ value: UNTAGGED, label: 'Sem tag' },
@@ -201,19 +235,32 @@ export function TransactionsView() {
 			<PageHeader
 				title="Transações"
 				description="Todas as contas importadas. Os filtros e a página ficam no endereço."
-				actions={<TagManagerSheet />}
+				actions={
+					<>
+						<TagManagerSheet />
+						{/* Baixa todas as transações dos filtros atuais, não só a página */}
+						<Button
+							variant="outline"
+							nativeButton={false}
+							render={<a href={exportHref} download aria-label="Exportar transações em CSV" />}
+						>
+							<DownloadIcon data-icon="inline-start" />
+							Exportar CSV
+						</Button>
+					</>
+				}
 				aside={
 					<HeroMetric
 						label="Saldo"
 						value={data ? balance : undefined}
-						className={!data ? '' : balance >= 0 ? 'text-green-600' : 'text-red-500'}
+						className={!data ? '' : balance >= 0 ? 'text-positive' : 'text-negative'}
 						items={
 							data && [
-								{ label: 'Entradas', value: data.summary.income, className: 'text-green-600' },
+								{ label: 'Entradas', value: data.summary.income, className: 'text-positive' },
 								{
 									label: 'Saídas',
 									value: Math.abs(data.summary.expense),
-									className: 'text-red-500',
+									className: 'text-negative',
 								},
 							]
 						}
@@ -235,16 +282,19 @@ export function TransactionsView() {
 
 			{/* A barra de filtros fica fixa enquanto as seções abaixo rolam */}
 			<div className="flex flex-col gap-8">
-				{/* Filtros fixos no topo enquanto rola: valem para tudo que está abaixo */}
-				<div className="sticky top-12 z-10 -mx-6 flex flex-col gap-2 border-b bg-background/95 px-6 py-3 backdrop-blur">
-					<div className="flex flex-wrap items-center gap-2">
+				{/*
+				 * Filtros fixos no topo enquanto rola: valem para tudo que está abaixo. No celular
+				 * não fixam (ocupariam meia tela) e viram uma grade de duas colunas
+				 */}
+				<div className="glass-bar z-10 flex flex-col gap-2 rounded-xl px-4 py-3 md:sticky md:top-14">
+					<div className="grid grid-cols-2 items-center gap-2 sm:flex sm:flex-wrap">
 						<Select
 							items={accountItems}
 							value={accountId}
 							// Os meses dependem da conta: trocar de conta volta para todo o período
 							onValueChange={(value) => setFilter({ accountId: value ?? ALL, month: ALL })}
 						>
-							<SelectTrigger className="min-w-48" aria-label="Conta">
+							<SelectTrigger className="col-span-2 w-full sm:w-auto sm:min-w-48" aria-label="Conta">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -263,7 +313,7 @@ export function TransactionsView() {
 							value={month}
 							onValueChange={(value) => setFilter({ month: value ?? ALL })}
 						>
-							<SelectTrigger className="min-w-44" aria-label="Mês">
+							<SelectTrigger className="w-full sm:w-auto sm:min-w-44" aria-label="Mês">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -282,7 +332,7 @@ export function TransactionsView() {
 							value={tagId}
 							onValueChange={(value) => setFilter({ tagId: value ?? ALL })}
 						>
-							<SelectTrigger className="min-w-40" aria-label="Tag">
+							<SelectTrigger className="w-full sm:w-auto sm:min-w-40" aria-label="Tag">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -299,6 +349,7 @@ export function TransactionsView() {
 						<ToggleGroup
 							variant="outline"
 							spacing={0}
+							className="col-span-2 w-full sm:w-auto [&>*]:flex-1 sm:[&>*]:flex-none"
 							value={[type]}
 							onValueChange={(values) => setFilter({ type: values[0] ?? ALL })}
 						>
@@ -307,7 +358,7 @@ export function TransactionsView() {
 							<ToggleGroupItem value="expense">Saídas</ToggleGroupItem>
 						</ToggleGroup>
 
-						<InputGroup className="sm:ml-auto sm:max-w-64">
+						<InputGroup className="col-span-2 sm:ml-auto sm:max-w-64">
 							<InputGroupInput
 								placeholder="Buscar descrição"
 								aria-label="Buscar descrição"
@@ -321,7 +372,7 @@ export function TransactionsView() {
 					</div>
 
 					<div className="flex min-h-7 flex-wrap items-center gap-2 text-sm">
-						<span className="text-muted-foreground">
+						<span className="text-muted-foreground" aria-live="polite">
 							{data
 								? `${data.total} ${data.total === 1 ? 'transação' : 'transações'}`
 								: 'Carregando...'}
@@ -347,17 +398,17 @@ export function TransactionsView() {
 				</div>
 
 				<div className="section-stack">
-					{data && (
+					{overview && (
 						<PageSection
 							title="Evolução"
 							description="O gráfico mostra todos os meses; os gastos por tag ignoram o filtro de tag."
 						>
 							<div className="grid gap-6 md:grid-cols-[3fr_2fr]">
 								{/* Resposta em cache de antes do byMonth existir não tem o campo */}
-								{data.byMonth?.length ? (
+								{overview.byMonth?.length ? (
 									<IncomeExpenseChart
 										granularity="month"
-										periods={data.byMonth}
+										periods={overview.byMonth}
 										selectedStart={month === ALL ? null : `${month}-01`}
 										description="Todos os meses, com conta, tag e busca. Clique numa coluna para filtrar o mês."
 										// Clicar no mês já selecionado volta para todo o período
@@ -367,11 +418,11 @@ export function TransactionsView() {
 										}}
 									/>
 								) : null}
-								{(data.byTag.length > 0 || data.untagged.count > 0) && (
+								{(overview.byTag.length > 0 || overview.untagged.count > 0) && (
 									<SpendingByTag
 										tags={tags}
-										byTag={data.byTag}
-										untagged={data.untagged}
+										byTag={overview.byTag}
+										untagged={overview.untagged}
 										activeTagId={tagId === ALL ? null : tagId}
 										onSelect={(id) => setFilter({ tagId: id ?? ALL })}
 									/>
@@ -381,11 +432,45 @@ export function TransactionsView() {
 					)}
 
 					<PageSection
+						title="Hábitos de gasto"
+						description="Consideram só as saídas que contam nos totais, com conta, mês, tag e busca."
+					>
+						{dailyError && (
+							<QueryError
+								message="Não foi possível carregar os gastos por dia."
+								onRetry={() => refetchDaily()}
+								retrying={isRefetchingDaily}
+							/>
+						)}
+						{daily ? (
+							<div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
+								<SpendingHeatmap
+									days={daily}
+									month={month === ALL ? null : month}
+									isStale={isDailyStale}
+								/>
+								<WeekdaySpending
+									days={daily}
+									month={month === ALL ? null : month}
+									isStale={isDailyStale}
+								/>
+							</div>
+						) : (
+							!dailyError && <Skeleton className="h-64 w-full" />
+						)}
+					</PageSection>
+
+					<PageSection
 						title="Lançamentos"
 						description={data && `Página ${data.page} de ${totalPages}`}
-						className="reveal"
 					>
-						{isError && <p className="text-sm text-destructive">Erro ao carregar transações.</p>}
+						{isError && (
+							<QueryError
+								message="Não foi possível carregar as transações."
+								onRetry={() => refetch()}
+								retrying={isRefetching}
+							/>
+						)}
 
 						{isLoading && (
 							<div className="flex flex-col gap-2">
@@ -403,7 +488,7 @@ export function TransactionsView() {
 									</EmptyMedia>
 									<EmptyTitle>Nenhuma transação encontrada</EmptyTitle>
 									<EmptyDescription>
-										Mude os filtros ou importe um extrato na página de Finanças.
+										Mude os filtros ou importe um extrato em Contas.
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>
@@ -435,7 +520,8 @@ export function TransactionsView() {
 														{formatDate(tx.date)}
 													</TableCell>
 													<TableCell className="w-full max-w-0">
-														<span className="block truncate" title={tx.description}>
+														{/* Até duas linhas: a descrição do extrato é a única pista do que foi a compra */}
+														<span className="line-clamp-2 break-words" title={tx.description}>
 															{tx.description}
 														</span>
 														{tx.installment && (
@@ -450,6 +536,7 @@ export function TransactionsView() {
 																transactionId={tx.id}
 																tagIds={tx.tagIds}
 																tags={tags}
+																description={tx.description}
 															/>
 														</div>
 													</TableCell>
@@ -458,28 +545,28 @@ export function TransactionsView() {
 															transactionId={tx.id}
 															tagIds={tx.tagIds}
 															tags={tags}
+															description={tx.description}
 														/>
 													</TableCell>
 													<TableCell className="hidden text-muted-foreground md:table-cell">
 														{tx.account.bankName}
 													</TableCell>
 													<TableCell
-														title={
-															isExcluded(tx.tagIds)
-																? 'Fora dos totais (transferência entre contas)'
-																: undefined
-														}
 														className={cn(
 															'pr-4 text-right align-top font-medium tabular-nums',
 															isExcluded(tx.tagIds)
 																? 'text-muted-foreground'
 																: tx.amount >= 0
-																	? 'text-green-600'
-																	: 'text-red-500',
+																	? 'text-positive'
+																	: 'text-negative',
 														)}
 													>
 														{tx.amount >= 0 ? '+' : '-'}
 														{formatCurrency(Math.abs(tx.amount))}
+														{/* Escrito, não só em tooltip: o cinza sozinho não explica o motivo */}
+														{isExcluded(tx.tagIds) && (
+															<span className="block text-xs font-normal">fora dos totais</span>
+														)}
 													</TableCell>
 												</TableRow>
 											))}

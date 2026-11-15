@@ -8,6 +8,7 @@ import { useForm } from 'react-hook-form'
 import QRCode from 'react-qr-code'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TotpStatusBadge } from '@/components/security/totp-status-badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,6 +35,7 @@ function secretFromUri(totpURI: string) {
 export function TwoFactorSetup() {
 	const [totpURI, setTotpURI] = useState<string | null>(null)
 	const [isStarting, setIsStarting] = useState(false)
+	const [confirmingReplace, setConfirmingReplace] = useState(false)
 
 	const queryClient = useQueryClient()
 	const { data: session, isPending, refetch } = authClient.useSession()
@@ -59,15 +61,6 @@ export function TwoFactorSetup() {
 	const isConfigured = !!session?.user.twoFactorEnabled
 
 	async function startSetup() {
-		if (
-			isConfigured &&
-			!confirm(
-				'O autenticador atual para de funcionar assim que você começar. Se não concluir, o login de reserva fica desativado. Continuar?',
-			)
-		) {
-			return
-		}
-
 		setIsStarting(true)
 
 		// Trocar = desativar o atual e gerar um segredo novo
@@ -75,7 +68,11 @@ export function TwoFactorSetup() {
 			const { error } = await authClient.twoFactor.disable({})
 			if (error) {
 				setIsStarting(false)
-				toast.error('Erro ao trocar o autenticador')
+				toast.error(
+					error.code === 'SESSION_NOT_FRESH'
+						? 'Entre de novo para alterar a segurança da conta: saia e faça login outra vez.'
+						: 'Erro ao trocar o autenticador',
+				)
 				refreshStatus()
 				return
 			}
@@ -85,7 +82,11 @@ export function TwoFactorSetup() {
 		setIsStarting(false)
 
 		if (error || data.method !== 'totp') {
-			toast.error('Erro ao gerar o QR code')
+			toast.error(
+				error?.code === 'SESSION_NOT_FRESH'
+					? 'Entre de novo para alterar a segurança da conta: saia e faça login outra vez.'
+					: 'Erro ao gerar o QR code',
+			)
 			refreshStatus()
 			return
 		}
@@ -199,7 +200,7 @@ export function TwoFactorSetup() {
 				)}
 
 				<Button
-					onClick={startSetup}
+					onClick={() => (isConfigured ? setConfirmingReplace(true) : startSetup())}
 					disabled={isStarting}
 					variant={isConfigured ? 'outline' : 'default'}
 					className="w-full"
@@ -207,6 +208,22 @@ export function TwoFactorSetup() {
 					{isStarting ? 'Gerando...' : isConfigured ? 'Trocar autenticador' : 'Configurar'}
 				</Button>
 			</CardContent>
+
+			<ConfirmDialog
+				open={confirmingReplace}
+				onOpenChange={setConfirmingReplace}
+				title="Trocar o autenticador?"
+				description={
+					<p>
+						O autenticador atual para de funcionar assim que você continuar. Se você não concluir a
+						configuração do novo com o código do QR code, o login de reserva fica desativado. Não dá
+						para desfazer.
+					</p>
+				}
+				confirmLabel="Trocar autenticador"
+				destructive
+				onConfirm={startSetup}
+			/>
 		</Card>
 	)
 }

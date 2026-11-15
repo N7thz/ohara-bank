@@ -1,0 +1,43 @@
+// Tag para agrupar transações; uma transação pode ter várias
+model Tag {
+  id                String           @id @default(cuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  /// Chave da paleta (blue, orange, aqua, yellow, magenta, violet)
+  color             String
+  /// Transferência entre contas próprias, crédito do Pix no cartão etc.:
+  /// a transação aparece na lista, mas não conta em entradas, saídas e gastos
+  excludeFromTotals Boolean          @default(false)
+  /// Limite de gastos por mês; null = sem orçamento
+  monthlyBudget     Decimal?         @db.Decimal(14, 2)
+  transactions      TransactionTag[]
+  rules             TagRule[]
+  createdAt         DateTime         @default(now())
+
+  @@unique([userId, name])
+  @@map("tag")
+}
+
+model TransactionTag {
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tagId         String
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@index([tagId])
+  @@map("transaction_tag")
+}
+
+// "Descrição contém <pattern>" → aplica a tag (sem diferenciar maiúsculas e acentos)
+model TagRule {
+  id        String   @id @default(cuid())
+  tagId     String
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  pattern   String
+  createdAt DateTime @default(now())
+
+  @@unique([tagId, pattern])
+  @@map("tag_rule")
+}

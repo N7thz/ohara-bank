@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { requireSession } from '@/lib/api-session'
 import { prisma } from '@/lib/prisma'
 
 /** Remove a regra; as tags que ela já aplicou continuam nas transações */
@@ -7,10 +7,8 @@ export async function DELETE(
 	request: Request,
 	{ params }: { params: Promise<{ id: string; ruleId: string }> },
 ) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
 	const { id, ruleId } = await params
 	const rule = await prisma.tagRule.findUnique({ where: { id: ruleId }, include: { tag: true } })

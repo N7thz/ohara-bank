@@ -1,5 +1,8 @@
 import { getDocumentProxy } from 'unpdf'
 
+/** Limite de páginas aceito: extratos e faturas reais têm de 2 a ~10 */
+export const MAX_PDF_PAGES = 50
+
 export interface PdfItem {
 	text: string
 	x: number
@@ -22,41 +25,78 @@ export function center(item: PdfItem): number {
 	return item.x + item.width / 2
 }
 
-/** Lê o texto de cada página agrupado em linhas, de cima para baixo */
-export async function readPdfRows(buffer: ArrayBuffer): Promise<PdfRow[][]> {
-	const pdf = await getDocumentProxy(new Uint8Array(buffer))
-	const pages: PdfRow[][] = []
+/** PDF com senha (ex.: fatura do cartão Itaú): sem a senha certa não dá para ler */
+export class PdfPasswordError extends Error {
+	readonly needsPassword = true
+	/** true quando uma senha foi enviada e estava errada */
+	readonly wrongPassword: boolean
 
-	for (let number = 1; number <= pdf.numPages; number++) {
-		const page = await pdf.getPage(number)
-		const { items } = await page.getTextContent()
+	constructor(wrongPassword: boolean) {
+		super(wrongPassword ? 'Senha do PDF incorreta' : 'PDF protegido por senha')
+		this.name = 'PdfPasswordError'
+		this.wrongPassword = wrongPassword
+	}
+}
 
-		const pdfItems: PdfItem[] = []
-		for (const item of items) {
-			if (!('str' in item) || !item.str.trim()) continue
-			pdfItems.push({
-				text: item.str.trim(),
-				x: item.transform[4],
-				y: item.transform[5],
-				width: item.width,
-			})
+/** Texto de cada página como itens soltos, com posição; senha só para PDF protegido */
+export async function readPdfItems(buffer: ArrayBuffer, password?: string): Promise<PdfItem[][]> {
+	let pdf: Awaited<ReturnType<typeof getDocumentProxy>>
+	try {
+		pdf = await getDocumentProxy(new Uint8Array(buffer), password ? { password } : {})
+	} catch (error) {
+		if (error instanceof Error && error.name === 'PasswordException') {
+			throw new PdfPasswordError(Boolean(password))
 		}
-
-		// No PDF o y cresce para cima
-		pdfItems.sort((a, b) => b.y - a.y)
-
-		const rows: PdfRow[] = []
-		let rowY = Number.POSITIVE_INFINITY
-		for (const item of pdfItems) {
-			if (rowY - item.y > ROW_TOLERANCE) {
-				rows.push([])
-				rowY = item.y
-			}
-			rows[rows.length - 1].push(item)
-		}
-
-		pages.push(rows.map((row) => row.sort((a, b) => a.x - b.x)))
+		throw error
 	}
 
-	return pages
+	try {
+		if (pdf.numPages > MAX_PDF_PAGES) {
+			throw new Error(`PDF com mais de ${MAX_PDF_PAGES} páginas não é aceito`)
+		}
+
+		const pages: PdfItem[][] = []
+		for (let number = 1; number <= pdf.numPages; number++) {
+			const page = await pdf.getPage(number)
+			const { items } = await page.getTextContent()
+
+			const pdfItems: PdfItem[] = []
+			for (const item of items) {
+				if (!('str' in item) || !item.str.trim()) continue
+				pdfItems.push({
+					text: item.str.trim(),
+					x: item.transform[4],
+					y: item.transform[5],
+					width: item.width,
+				})
+			}
+			pages.push(pdfItems)
+		}
+		return pages
+	} finally {
+		await pdf.loadingTask.destroy()
+	}
+}
+
+/** Agrupa itens da mesma altura em linhas, de cima para baixo e da esquerda para a direita */
+export function groupRows(items: PdfItem[]): PdfRow[] {
+	// No PDF o y cresce para cima
+	const sorted = [...items].sort((a, b) => b.y - a.y)
+
+	const rows: PdfRow[] = []
+	let rowY = Number.POSITIVE_INFINITY
+	for (const item of sorted) {
+		if (rowY - item.y > ROW_TOLERANCE) {
+			rows.push([])
+			rowY = item.y
+		}
+		rows[rows.length - 1].push(item)
+	}
+	return rows.map((row) => row.sort((a, b) => a.x - b.x))
+}
+
+/** Lê o texto de cada página agrupado em linhas, de cima para baixo */
+export async function readPdfRows(buffer: ArrayBuffer, password?: string): Promise<PdfRow[][]> {
+	const pages = await readPdfItems(buffer, password)
+	return pages.map(groupRows)
 }

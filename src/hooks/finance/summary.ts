@@ -49,3 +49,84 @@ export function summaryQuery(filters: SummaryFilters) {
 export function useFinanceSummary(filters: SummaryFilters) {
 	return useQuery({ ...summaryQuery(filters), placeholderData: keepPreviousData })
 }
+
+// /api/finance/summary/merchants
+
+export interface MerchantFilters {
+	/** Período escolhido, AAAA-MM-DD inclusive */
+	start: string
+	end: string
+	/** Começo do período anterior, para comparar */
+	previousStart?: string
+	accountId?: string
+}
+
+export interface Merchant {
+	name: string
+	/** Trecho da descrição para buscar na lista de transações */
+	query: string
+	/** Positivo */
+	total: number
+	count: number
+	/** Gasto no período anterior; null sem período anterior */
+	previous: number | null
+	/** Tag mais usada nas compras do lugar */
+	tagId: string | null
+}
+
+export interface MerchantRanking {
+	/** Todas as saídas do período, sem as transferências entre contas */
+	total: number
+	merchants: Merchant[]
+	/** Lugares fora da lista */
+	others: { count: number; total: number }
+}
+
+export function useTopMerchants(filters: MerchantFilters | undefined) {
+	return useQuery({
+		queryKey: financeKeys.merchants(filters ?? {}),
+		queryFn: async () => {
+			const { data } = await api.get<MerchantRanking>('/finance/summary/merchants', {
+				params: filters,
+			})
+			return data
+		},
+		enabled: !!filters,
+		placeholderData: keepPreviousData,
+	})
+}
+
+// /api/finance/summary/daily
+
+export interface DailySpendingFilters {
+	/** Período escolhido, AAAA-MM-DD inclusive */
+	start: string
+	end: string
+	/** Começo do período anterior, para comparar */
+	previousStart?: string
+	accountId?: string
+}
+
+export interface DailySpending {
+	/** Saída por dia (positivo); só os dias com gasto */
+	current: { date: string; total: number }[]
+	/** null sem período anterior */
+	previous: { date: string; total: number }[] | null
+	/** Último dia com transação na conta; depois dele não há extrato */
+	lastStatementDate: string | null
+}
+
+export function useDailySpending(filters: DailySpendingFilters | undefined) {
+	return useQuery({
+		// Começa por ['finance', 'summary'] para a invalidação de financeKeys.all alcançar
+		queryKey: ['finance', 'summary', 'daily', filters ?? {}] as const,
+		queryFn: async () => {
+			const { data } = await api.get<DailySpending>('/finance/summary/daily', {
+				params: filters,
+			})
+			return data
+		},
+		enabled: !!filters,
+		placeholderData: keepPreviousData,
+	})
+}

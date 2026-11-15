@@ -14,6 +14,8 @@ export type ImportResult =
 			bankName: string
 			imported: number
 			duplicates: number
+			/** Importadas que as regras não marcaram com nenhuma tag */
+			untagged: number
 	  }
 	| {
 			kind: 'payslip'
@@ -29,17 +31,20 @@ export interface ImportInput {
 	/** Só para CSV genérico, que não diz de qual banco é */
 	bankName?: string
 	type?: BankAccount['type']
+	/** Só para PDF com senha (fatura do cartão Itaú) */
+	password?: string
 }
 
 export function useImportStatement() {
 	const queryClient = useQueryClient()
 
 	return useMutation({
-		mutationFn: async ({ file, bankName, type }: ImportInput) => {
+		mutationFn: async ({ file, bankName, type, password }: ImportInput) => {
 			const formData = new FormData()
 			formData.append('file', file)
 			if (bankName) formData.append('bankName', bankName)
 			if (type) formData.append('type', type)
+			if (password) formData.append('password', password)
 			const { data } = await api.post<ImportResult>('/finance/import', formData)
 			return data
 		},

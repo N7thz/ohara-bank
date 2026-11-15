@@ -8,6 +8,8 @@ const updateSchema = z.object({
 	name: z.string().trim().min(1).max(40).optional(),
 	color: z.enum(TAG_COLORS).optional(),
 	excludeFromTotals: z.boolean().optional(),
+	/** Limite de gastos por mês; null remove o orçamento */
+	monthlyBudget: z.number().positive().max(1_000_000).nullable().optional(),
 })
 
 async function findOwnTag(request: Request, params: Promise<{ id: string }>) {
@@ -52,6 +54,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 		name: updated.name,
 		color: updated.color,
 		excludeFromTotals: updated.excludeFromTotals,
+		monthlyBudget: updated.monthlyBudget === null ? null : Number(updated.monthlyBudget),
 	})
 }
 

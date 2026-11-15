@@ -6,12 +6,12 @@ import { api } from '@/lib/api'
 export interface LoginTotpStatus {
 	/** pending = QR gerado mas código ainda não confirmado */
 	status: 'connected' | 'pending' | 'locked' | 'not-configured'
-	failedAttempts: number
-	maxAttempts: number
 	lockedUntil: string | null
 }
 
 export interface TotpStatus extends LoginTotpStatus {
+	failedAttempts: number
+	maxAttempts: number
 	loginAllowed: boolean
 }
 

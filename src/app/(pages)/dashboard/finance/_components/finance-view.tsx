@@ -3,15 +3,18 @@
 import { HeroMetric } from '@/components/finance/hero-metric'
 import { PageHeader } from '@/components/page-header'
 import { PageSection } from '@/components/page-section'
+import { QueryError } from '@/components/query-error'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useBankAccounts } from '@/hooks/finance/accounts'
 import { usePayslips } from '@/hooks/finance/payslips'
+import { BalanceHistoryChart } from './balance-history-chart'
 import { BankAccountCard } from './bank-account-card'
 import { ImportStatementDropzone } from './import-statement-dropzone'
+import { PayslipChart } from './payslip-chart'
 import { PayslipList } from './payslip-list'
 
 export function FinanceView() {
-	const { data: accounts = [], isLoading, isError } = useBankAccounts()
+	const { data: accounts = [], isLoading, isError, refetch, isRefetching } = useBankAccounts()
 	const { data: payslips = [] } = usePayslips()
 
 	const checkingAccounts = accounts.filter((account) => account.balance !== null)
@@ -20,7 +23,7 @@ export function FinanceView() {
 	return (
 		<div className="stagger page-stack">
 			<PageHeader
-				title="Finanças"
+				title="Contas"
 				description="Contas, extratos importados e holerites. Arraste um extrato ou holerite para importar."
 				aside={
 					(isLoading || checkingAccounts.length > 0) && (
@@ -35,7 +38,13 @@ export function FinanceView() {
 					)
 				}
 			>
-				{isError && <p className="text-sm text-destructive">Erro ao carregar contas importadas.</p>}
+				{isError && (
+					<QueryError
+						message="Não foi possível carregar as contas importadas."
+						onRetry={() => refetch()}
+						retrying={isRefetching}
+					/>
+				)}
 			</PageHeader>
 
 			<PageSection
@@ -57,7 +66,6 @@ export function FinanceView() {
 				<PageSection
 					title="Contas"
 					description={`${accounts.length} ${accounts.length === 1 ? 'conta importada' : 'contas importadas'}, com as últimas transações.`}
-					className="reveal"
 				>
 					<div className="stagger grid items-start gap-6 md:grid-cols-2">
 						{accounts.map((account) => (
@@ -67,8 +75,18 @@ export function FinanceView() {
 				</PageSection>
 			)}
 
+			{checkingAccounts.length > 0 && (
+				<PageSection
+					title="Saldo ao longo do tempo"
+					description="Quanto você tinha em conta no fim de cada dia."
+				>
+					<BalanceHistoryChart accounts={checkingAccounts} />
+				</PageSection>
+			)}
+
 			{payslips.length > 0 && (
-				<PageSection title="Holerites" className="reveal">
+				<PageSection title="Holerites">
+					<PayslipChart payslips={payslips} />
 					<div className="lg:max-w-3xl">
 						<PayslipList payslips={payslips} />
 					</div>

@@ -1,7 +1,8 @@
 import { defineConfig, env } from 'prisma/config'
 
 export default defineConfig({
-	schema: 'prisma/schema.prisma',
+	// Pasta: o schema é dividido em um arquivo por domínio
+	schema: 'prisma/schema',
 	migrations: {
 		path: 'prisma/migrations',
 		seed: 'bun prisma/seed.ts',

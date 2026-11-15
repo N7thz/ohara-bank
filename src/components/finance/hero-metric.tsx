@@ -24,12 +24,10 @@ interface HeroMetricProps {
 /** Lado direito do hero: um número em destaque e os de apoio embaixo */
 export function HeroMetric({ label, value, className, hint, items, footnote }: HeroMetricProps) {
 	return (
-		<Card className="hover-lift">
+		<Card>
 			<CardContent className="flex flex-col gap-5">
 				<div className="flex flex-col gap-1">
-					<span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-						{label}
-					</span>
+					<span className="text-sm font-medium text-muted-foreground">{label}</span>
 					{value === undefined ? (
 						<Skeleton className="h-12 w-48" />
 					) : (

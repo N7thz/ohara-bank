@@ -2,6 +2,7 @@
 
 import { isAxiosError } from 'axios'
 import { UploadIcon } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { type DragEvent, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -9,7 +10,9 @@ import type { ImportInput, ImportResult } from '@/hooks/finance/import'
 import { useImportStatement } from '@/hooks/finance/import'
 import { formatCompetence } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { UNTAGGED } from '../transactions/_components/spending-by-tag'
 import { AccountInfoDialog } from './account-info-dialog'
+import { PdfPasswordDialog } from './pdf-password-dialog'
 
 type AccountInfo = Pick<ImportInput, 'bankName' | 'type'>
 
@@ -20,7 +23,18 @@ function isAccepted(file: File) {
 	return ACCEPTED_EXTENSIONS.some((extension) => name.endsWith(extension))
 }
 
-export function ImportStatementDropzone() {
+interface ImportStatementDropzoneProps {
+	/** Chamado antes de ir para Transações pelo botão do aviso (ex.: fechar o diálogo que contém a área) */
+	onNavigate?: () => void
+}
+
+export function ImportStatementDropzone({ onNavigate }: ImportStatementDropzoneProps) {
+	const router = useRouter()
+
+	function goTo(url: string) {
+		onNavigate?.()
+		router.push(url)
+	}
 	const inputRef = useRef<HTMLInputElement>(null)
 	const [isDragging, setIsDragging] = useState(false)
 	// CSV genérico aguardando o usuário dizer banco e tipo
@@ -29,11 +43,38 @@ export function ImportStatementDropzone() {
 		resolve: (info: AccountInfo | null) => void
 	} | null>(null)
 
+	// PDF com senha aguardando o usuário digitar
+	const [pendingPassword, setPendingPassword] = useState<{
+		file: File
+		wrongPassword: boolean
+		resolve: (password: string | null) => void
+	} | null>(null)
+
 	const { mutateAsync: importStatement, isPending } = useImportStatement()
-	const isBusy = isPending || !!pending
+	const isBusy = isPending || !!pending || !!pendingPassword
 
 	function askAccountInfo(file: File) {
 		return new Promise<AccountInfo | null>((resolve) => setPending({ file, resolve }))
+	}
+
+	function askPassword(file: File, wrongPassword: boolean) {
+		return new Promise<string | null>((resolve) =>
+			setPendingPassword({ file, wrongPassword, resolve }),
+		)
+	}
+
+	/** Importa; se o PDF tiver senha, pede e tenta de novo até acertar ou o usuário pular */
+	async function importWithPassword(input: ImportInput): Promise<ImportResult | null> {
+		try {
+			return await importStatement(input)
+		} catch (error) {
+			const data = isAxiosError(error) ? error.response?.data : null
+			if (!data?.needsPassword) throw error
+
+			const password = await askPassword(input.file, Boolean(data.wrongPassword))
+			if (!password) return null
+			return importWithPassword({ ...input, password })
+		}
 	}
 
 	function notify(result: ImportResult) {
@@ -44,15 +85,41 @@ export function ImportStatementDropzone() {
 			return
 		}
 
-		toast.success(
-			`${result.bankName}: ${result.imported} transações importadas` +
-				(result.duplicates > 0 ? ` (${result.duplicates} já existiam)` : ''),
-		)
+		const { accountId, bankName, imported, duplicates, untagged } = result
+
+		if (imported === 0) {
+			toast.info(`${bankName}: nenhuma transação nova`, {
+				description:
+					duplicates === 1 ? 'A transação já existia.' : 'Todas as transações já existiam.',
+			})
+			return
+		}
+
+		const duplicatesNote =
+			duplicates > 0 ? ` (${duplicates} ${duplicates === 1 ? 'já existia' : 'já existiam'})` : ''
+		const message = `${bankName}: ${imported} ${imported === 1 ? 'transação importada' : 'transações importadas'}${duplicatesNote}`
+		const transactionsUrl = `/dashboard/finance/transactions?accountId=${encodeURIComponent(accountId)}`
+
+		if (untagged > 0) {
+			toast.success(message, {
+				description: `${untagged} sem tag`,
+				action: {
+					label: 'Marcar tags',
+					onClick: () => goTo(`${transactionsUrl}&tagId=${UNTAGGED}`),
+				},
+			})
+			return
+		}
+
+		toast.success(message, {
+			action: { label: 'Ver transações', onClick: () => goTo(transactionsUrl) },
+		})
 	}
 
 	async function importFile(file: File) {
 		try {
-			notify(await importStatement({ file }))
+			const result = await importWithPassword({ file })
+			if (result) notify(result)
 		} catch (error) {
 			const data = isAxiosError(error) ? error.response?.data : null
 
@@ -113,6 +180,11 @@ export function ImportStatementDropzone() {
 		setPending(null)
 	}
 
+	function closePasswordDialog(password: string | null) {
+		pendingPassword?.resolve(password)
+		setPendingPassword(null)
+	}
+
 	return (
 		<>
 			<label
@@ -145,7 +217,8 @@ export function ImportStatementDropzone() {
 							: 'Arraste extratos aqui ou clique para selecionar'}
 				</span>
 				<span className="text-xs text-muted-foreground">
-					Extrato em OFX, CSV ou PDF do Itaú, holerite em PDF · até 5 MB cada
+					Extrato em OFX, CSV ou PDF do Itaú, fatura do cartão Itaú e holerite em PDF · até 5 MB
+					cada
 				</span>
 			</label>
 
@@ -153,6 +226,13 @@ export function ImportStatementDropzone() {
 				fileName={pending?.file.name ?? null}
 				onConfirm={(info) => closeDialog(info)}
 				onCancel={() => closeDialog(null)}
+			/>
+
+			<PdfPasswordDialog
+				fileName={pendingPassword?.file.name ?? null}
+				wrongPassword={pendingPassword?.wrongPassword ?? false}
+				onConfirm={(password) => closePasswordDialog(password)}
+				onCancel={() => closePasswordDialog(null)}
 			/>
 		</>
 	)

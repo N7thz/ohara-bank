@@ -7,6 +7,7 @@ import { HeroMetric } from '@/components/finance/hero-metric'
 import { IncomeExpenseChart } from '@/components/finance/income-expense-chart'
 import { PageHeader } from '@/components/page-header'
 import { PageSection } from '@/components/page-section'
+import { QueryError } from '@/components/query-error'
 import { Button } from '@/components/ui/button'
 import {
 	Empty,
@@ -28,12 +29,18 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useBankAccounts } from '@/hooks/finance/accounts'
 import type { SummaryGranularity, SummaryPeriod } from '@/hooks/finance/summary'
-import { useFinanceSummary } from '@/hooks/finance/summary'
+import { useDailySpending, useFinanceSummary, useTopMerchants } from '@/hooks/finance/summary'
 import { useTags } from '@/hooks/finance/tags'
 import { formatCurrency, formatPeriodLong, previousPeriodLabel } from '@/lib/format'
 import { cn } from '@/lib/utils'
+import { TagManagerSheet } from '../../finance/transactions/_components/tag-manager-sheet'
+import { BudgetProgress } from './budget-progress'
 import { PeriodSummaryTable } from './period-summary-table'
+import { SpendingPaceChart } from './spending-pace-chart'
+import { TagDonutChart } from './tag-donut-chart'
 import { TagSpendingComparison } from './tag-spending-comparison'
+import { TagStackChart } from './tag-stack-chart'
+import { TopMerchants } from './top-merchants'
 
 const ALL = 'all'
 
@@ -56,8 +63,8 @@ function Delta({ value, previous, previousLabel, upIsGood }: DeltaProps) {
 				delta === null || delta === 0
 					? 'text-muted-foreground'
 					: isGood
-						? 'text-green-600'
-						: 'text-red-500',
+						? 'text-positive'
+						: 'text-negative',
 			)}
 		>
 			{delta === null
@@ -76,7 +83,7 @@ export function SummaryView() {
 
 	const { data: accounts = [] } = useBankAccounts()
 	const { data: tags = [] } = useTags()
-	const { data, isLoading, isError, isPlaceholderData } = useFinanceSummary({
+	const { data, isLoading, isError, isPlaceholderData, refetch, isRefetching } = useFinanceSummary({
 		granularity,
 		...(accountId !== ALL && { accountId }),
 	})
@@ -97,6 +104,24 @@ export function SummaryView() {
 		})),
 	]
 
+	const { data: merchants } = useTopMerchants(
+		selected && {
+			start: selected.start,
+			end: selected.end,
+			...(previous && { previousStart: previous.start }),
+			...(accountId !== ALL && { accountId }),
+		},
+	)
+
+	const { data: daily, isLoading: dailyLoading } = useDailySpending(
+		selected && {
+			start: selected.start,
+			end: selected.end,
+			...(previous && { previousStart: previous.start }),
+			...(accountId !== ALL && { accountId }),
+		},
+	)
+
 	const balance = selected ? selected.income + selected.expense : undefined
 	const previousBalance = previous && previous.income + previous.expense
 
@@ -112,7 +137,7 @@ export function SummaryView() {
 							label="Saldo do período"
 							value={balance}
 							className={
-								balance === undefined ? '' : balance >= 0 ? 'text-green-600' : 'text-red-500'
+								balance === undefined ? '' : balance >= 0 ? 'text-positive' : 'text-negative'
 							}
 							hint={
 								selected && (
@@ -180,10 +205,8 @@ export function SummaryView() {
 					<Select
 						items={accountItems}
 						value={accountId}
-						onValueChange={(value) => {
-							setAccountId(value ?? ALL)
-							setSelectedStart(null)
-						}}
+						// O período escolhido continua: os períodos são os mesmos em qualquer conta
+						onValueChange={(value) => setAccountId(value ?? ALL)}
 					>
 						<SelectTrigger className="min-w-48" aria-label="Conta">
 							<SelectValue />
@@ -199,7 +222,13 @@ export function SummaryView() {
 						</SelectContent>
 					</Select>
 				</div>
-				{isError && <p className="text-sm text-destructive">Erro ao carregar o resumo.</p>}
+				{isError && (
+					<QueryError
+						message="Não foi possível carregar o resumo."
+						onRetry={() => refetch()}
+						retrying={isRefetching}
+					/>
+				)}
 			</PageHeader>
 
 			{isLoading && <Skeleton className="h-96" />}
@@ -214,7 +243,9 @@ export function SummaryView() {
 						<EmptyDescription>Importe um extrato para ver o resumo.</EmptyDescription>
 					</EmptyHeader>
 					<EmptyContent>
-						<Button render={<Link href="/dashboard/finance" />}>Ir para Finanças</Button>
+						<Button nativeButton={false} render={<Link href="/dashboard/finance" />}>
+							Ir para Contas
+						</Button>
 					</EmptyContent>
 				</Empty>
 			)}
@@ -224,7 +255,7 @@ export function SummaryView() {
 				<div className={cn('section-stack', isPlaceholderData && 'opacity-60')}>
 					<PageSection
 						title="Evolução"
-						description={`Por ${granularity === 'month' ? 'mês' : 'semana'}. Clique numa coluna ou numa linha da tabela para ver o período.`}
+						description="Escolha um período no gráfico ou na tabela Mês a mês; a página inteira passa a mostrar ele."
 					>
 						{/* Assimétrico: o gráfico ocupa mais espaço que a lista de tags */}
 						<div className="grid gap-6 md:grid-cols-[3fr_2fr]">
@@ -244,9 +275,68 @@ export function SummaryView() {
 					</PageSection>
 
 					<PageSection
-						title={granularity === 'month' ? 'Mês a mês' : 'Semana a semana'}
-						className="reveal"
+						title="Ritmo de gastos"
+						description={`Quanto você já gastou a cada dia de ${formatPeriodLong(granularity, selected)}, contra o ${previousLabel}.`}
 					>
+						<SpendingPaceChart
+							granularity={granularity}
+							start={selected.start}
+							end={selected.end}
+							previousStart={previous?.start}
+							data={daily}
+							isLoading={dailyLoading}
+						/>
+					</PageSection>
+
+					<PageSection
+						title="Gastos por tag"
+						description="Quais categorias crescem ao longo dos períodos e qual a fatia de cada uma no período escolhido."
+					>
+						{/* Assimétrico como a Evolução; uma coluna no celular */}
+						<div className="grid gap-6 md:grid-cols-[3fr_2fr]">
+							<TagStackChart
+								granularity={granularity}
+								periods={periods}
+								tags={tags}
+								selectedStart={selected.start}
+								onSelect={setSelectedStart}
+							/>
+							<TagDonutChart granularity={granularity} period={selected} tags={tags} />
+						</div>
+					</PageSection>
+
+					{granularity === 'month' && (
+						<PageSection
+							title="Orçamentos"
+							actions={
+								tags.some((tag) => tag.monthlyBudget !== null && !tag.excludeFromTotals) && (
+									<TagManagerSheet
+										triggerLabel="Editar orçamentos"
+										triggerVariant="ghost"
+										triggerSize="sm"
+									/>
+								)
+							}
+							description="Gasto do mês nas tags com limite. A marca na barra é onde o gasto deveria estar hoje."
+						>
+							<BudgetProgress period={selected} tags={tags} />
+						</PageSection>
+					)}
+
+					<PageSection
+						title="Para onde foi o dinheiro"
+						description={`Onde você mais gastou em ${formatPeriodLong(granularity, selected)}.`}
+					>
+						<TopMerchants
+							granularity={granularity}
+							periodStart={selected.start}
+							accountId={accountId === ALL ? undefined : accountId}
+							data={merchants}
+							tags={tags}
+						/>
+					</PageSection>
+
+					<PageSection title={granularity === 'month' ? 'Mês a mês' : 'Semana a semana'}>
 						<PeriodSummaryTable
 							granularity={granularity}
 							periods={periods}

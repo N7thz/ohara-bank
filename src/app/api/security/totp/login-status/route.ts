@@ -9,5 +9,7 @@ export async function GET() {
 		? await prisma.user.findUnique({ where: { email }, select: { id: true } })
 		: null
 
-	return NextResponse.json(await getTotpStatus(user?.id))
+	// Sem contadores: números de tentativas ajudariam a dosar palpites
+	const { status, lockedUntil } = await getTotpStatus(user?.id)
+	return NextResponse.json({ status, lockedUntil: status === 'locked' ? lockedUntil : null })
 }

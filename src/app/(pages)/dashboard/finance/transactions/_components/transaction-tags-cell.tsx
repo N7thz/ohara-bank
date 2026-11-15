@@ -1,6 +1,7 @@
 'use client'
 
 import { PlusIcon } from 'lucide-react'
+import { useState } from 'react'
 import { toast } from 'sonner'
 import { TagBadge, TagDot } from '@/components/finance/tag-badge'
 import { Button } from '@/components/ui/button'
@@ -9,20 +10,31 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuGroup,
+	DropdownMenuItem,
 	DropdownMenuLabel,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import type { Tag } from '@/hooks/finance/tags'
 import { useSetTransactionTags } from '@/hooks/finance/transactions'
+import { CreateRuleDialog } from './create-rule-dialog'
 
 interface TransactionTagsCellProps {
 	transactionId: string
 	tagIds: string[]
 	tags: Tag[]
+	/** Descrição da transação: com ela o menu oferece criar uma regra de tag */
+	description?: string
 }
 
-export function TransactionTagsCell({ transactionId, tagIds, tags }: TransactionTagsCellProps) {
+export function TransactionTagsCell({
+	transactionId,
+	tagIds,
+	tags,
+	description,
+}: TransactionTagsCellProps) {
 	const { mutate: setTags, isPending } = useSetTransactionTags()
+	const [ruleOpen, setRuleOpen] = useState(false)
 
 	const selected = tags.filter((tag) => tagIds.includes(tag.id))
 
@@ -73,8 +85,26 @@ export function TransactionTagsCell({ transactionId, tagIds, tags }: Transaction
 							</DropdownMenuCheckboxItem>
 						))}
 					</DropdownMenuGroup>
+					{description && tags.length > 0 && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem onClick={() => setRuleOpen(true)}>
+								Criar regra com esta descrição…
+							</DropdownMenuItem>
+						</>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
+
+			{description && tags.length > 0 && (
+				<CreateRuleDialog
+					open={ruleOpen}
+					onOpenChange={setRuleOpen}
+					description={description}
+					tags={tags}
+					tagIds={tagIds}
+				/>
+			)}
 		</div>
 	)
 }

@@ -12,8 +12,12 @@ import {
 } from 'date-fns'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
+import { requireSession } from '@/lib/api-session'
+import { day, localToday } from '@/lib/dates'
+import { add, isPositive, type Money, toMoney, toReais, zeroMoney } from '@/lib/money'
 import { prisma } from '@/lib/prisma'
+import { isExcludedFromTotals } from '@/lib/totals'
+import { searchParamsObject } from '@/lib/transaction-filters'
 
 // Quantos períodos o resumo mostra, terminando no período atual
 const PERIOD_COUNT = 12
@@ -39,18 +43,11 @@ const periodFns = {
 	},
 }
 
-const day = (date: Date) => date.toISOString().slice(0, 10)
-
 export async function GET(request: Request) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
-	const params = Object.fromEntries(
-		[...new URL(request.url).searchParams].filter(([, value]) => value !== ''),
-	)
-	const query = querySchema.safeParse(params)
+	const query = querySchema.safeParse(searchParamsObject(request))
 	if (!query.success) {
 		return NextResponse.json({ error: 'Filtros inválidos' }, { status: 400 })
 	}
@@ -69,7 +66,7 @@ export async function GET(request: Request) {
 	}
 
 	// Últimos 12 períodos até hoje, sem os anteriores à primeira transação
-	const current = fns.start(new Date())
+	const current = fns.start(localToday())
 	const rangeStart = max([fns.sub(current, PERIOD_COUNT - 1), fns.start(first.date)])
 
 	const transactions = await prisma.transaction.findMany({
@@ -84,16 +81,16 @@ export async function GET(request: Request) {
 	const periods: {
 		start: string
 		end: string
-		income: number
-		expense: number
+		income: Money
+		expense: Money
 		count: number
 		/** Saídas por tag; uma transação com duas tags conta nas duas */
-		byTag: Record<string, number>
+		byTag: Record<string, Money>
 		/** Saídas sem tag */
-		untagged: number
+		untagged: Money
 		/** Entradas e saídas fora dos totais (transferências entre contas e afins) */
-		excludedIn: number
-		excludedOut: number
+		excludedIn: Money
+		excludedOut: Money
 	}[] = []
 	const index = new Map<string, number>()
 
@@ -102,13 +99,13 @@ export async function GET(request: Request) {
 		periods.push({
 			start: day(start),
 			end: day(fns.end(start)),
-			income: 0,
-			expense: 0,
+			income: zeroMoney(),
+			expense: zeroMoney(),
 			count: 0,
 			byTag: {},
-			untagged: 0,
-			excludedIn: 0,
-			excludedOut: 0,
+			untagged: zeroMoney(),
+			excludedIn: zeroMoney(),
+			excludedOut: zeroMoney(),
 		})
 	}
 
@@ -116,40 +113,39 @@ export async function GET(request: Request) {
 		const period = periods[index.get(day(fns.start(tx.date))) ?? -1]
 		if (!period) continue
 
-		const amount = Number(tx.amount)
+		const amount = toMoney(tx.amount)
 
 		// Dinheiro passando entre contas próprias não é entrada nem gasto
-		if (tx.tags.some(({ tag }) => tag.excludeFromTotals)) {
-			if (amount > 0) period.excludedIn += amount
-			else period.excludedOut += amount
+		if (isExcludedFromTotals(tx.tags)) {
+			if (isPositive(amount)) period.excludedIn = add(period.excludedIn, amount)
+			else period.excludedOut = add(period.excludedOut, amount)
 			continue
 		}
 
 		period.count++
-		if (amount > 0) {
-			period.income += amount
+		if (isPositive(amount)) {
+			period.income = add(period.income, amount)
 			continue
 		}
 
-		period.expense += amount
-		if (tx.tags.length === 0) period.untagged += amount
-		for (const { tagId } of tx.tags) period.byTag[tagId] = (period.byTag[tagId] ?? 0) + amount
+		period.expense = add(period.expense, amount)
+		if (tx.tags.length === 0) period.untagged = add(period.untagged, amount)
+		for (const { tagId } of tx.tags) {
+			period.byTag[tagId] = add(period.byTag[tagId] ?? zeroMoney(), amount)
+		}
 	}
-
-	// Soma em float acumula erro de centavos
-	const round = (value: number) => Math.round(value * 100) / 100
 
 	return NextResponse.json({
 		granularity,
 		periods: periods.map((period) => ({
 			...period,
-			income: round(period.income),
-			expense: round(period.expense),
-			untagged: round(period.untagged),
-			excludedIn: round(period.excludedIn),
-			excludedOut: round(period.excludedOut),
+			income: toReais(period.income),
+			expense: toReais(period.expense),
+			untagged: toReais(period.untagged),
+			excludedIn: toReais(period.excludedIn),
+			excludedOut: toReais(period.excludedOut),
 			byTag: Object.fromEntries(
-				Object.entries(period.byTag).map(([tagId, value]) => [tagId, round(value)]),
+				Object.entries(period.byTag).map(([tagId, value]) => [tagId, toReais(value)]),
 			),
 		})),
 	})

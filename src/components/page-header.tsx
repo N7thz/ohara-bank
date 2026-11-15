@@ -1,5 +1,5 @@
 interface PageHeaderProps {
-	/** Rótulo pequeno em caixa alta acima do título (ex.: período) */
+	/** Contexto do que a página mostra (ex.: o período), logo abaixo do título */
 	eyebrow?: string
 	title: string
 	description?: string
@@ -7,11 +7,15 @@ interface PageHeaderProps {
 	actions?: React.ReactNode
 	/** Filtros e avisos abaixo da descrição */
 	children?: React.ReactNode
-	/** Lado direito do hero: o número principal da página */
+	/** Lado direito: o número principal da página */
 	aside?: React.ReactNode
 }
 
-/** Hero dividido (DESIGN.md): texto à esquerda, visual à direita; empilha abaixo de 768px */
+/**
+ * Cabeçalho da página: título de app (não de landing page), o contexto e os filtros à
+ * esquerda e o número principal à direita; empilha abaixo de 768px. O número é o que
+ * tem o maior tamanho da página, não o título
+ */
 export function PageHeader({
 	eyebrow,
 	title,
@@ -23,20 +27,18 @@ export function PageHeader({
 	return (
 		<header
 			className={
-				aside ? 'grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] md:items-end' : ''
+				aside ? 'grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] md:items-end' : ''
 			}
 		>
 			<div className="flex min-w-0 flex-col gap-4">
-				<div className="flex flex-col gap-3">
-					{eyebrow && (
-						<p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
-							{eyebrow}
-						</p>
-					)}
-					<h1 className="text-[clamp(2.5rem,5vw,4rem)] leading-[1.05] font-bold tracking-tight">
+				<div className="flex flex-col gap-1.5">
+					<h1 className="text-[clamp(1.75rem,3vw,2.25rem)] leading-tight font-semibold tracking-tight text-balance">
 						{title}
 					</h1>
-					{description && <p className="max-w-[72ch] text-muted-foreground">{description}</p>}
+					{eyebrow && <p className="text-sm font-medium text-muted-foreground">{eyebrow}</p>}
+					{description && (
+						<p className="max-w-[72ch] text-sm text-muted-foreground">{description}</p>
+					)}
 				</div>
 				{children}
 				{actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

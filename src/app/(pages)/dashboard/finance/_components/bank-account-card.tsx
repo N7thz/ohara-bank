@@ -10,6 +10,7 @@ import {
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import type { BankAccount } from '@/hooks/finance/accounts'
@@ -24,19 +25,18 @@ interface BankAccountCardProps {
 export function BankAccountCard({ account }: BankAccountCardProps) {
 	const [expanded, setExpanded] = useState(false)
 
-	const { mutate: deleteAccount, isPending: isRemoving } = useDeleteBankAccount()
+	const [confirmingRemove, setConfirmingRemove] = useState(false)
+	const { mutateAsync: deleteAccount } = useDeleteBankAccount()
 
 	const isCreditCard = account.type === 'CREDIT_CARD'
 	const Icon = isCreditCard ? CreditCardIcon : LandmarkIcon
 
-	function handleRemove() {
-		if (!confirm(`Remover ${account.bankName} e todas as transações importadas?`)) return
-
-		deleteAccount(account.id, {
-			onSuccess: () => toast.success(`${account.bankName} removido`),
-			onError: () => toast.error('Erro ao remover conta'),
-		})
+	async function handleRemove() {
+		await deleteAccount(account.id)
+		toast.success(`${account.bankName} removido`)
 	}
+
+	const transactionLabel = `${account.transactionCount} ${account.transactionCount === 1 ? 'transação importada' : 'transações importadas'}`
 
 	return (
 		<Card>
@@ -54,8 +54,8 @@ export function BankAccountCard({ account }: BankAccountCardProps) {
 					variant="ghost"
 					size="icon"
 					className="text-muted-foreground hover:text-destructive"
-					disabled={isRemoving}
-					onClick={handleRemove}
+					aria-label={`Remover ${account.bankName}`}
+					onClick={() => setConfirmingRemove(true)}
 				>
 					<Trash2Icon className="size-4" />
 				</Button>
@@ -83,6 +83,28 @@ export function BankAccountCard({ account }: BankAccountCardProps) {
 
 				{expanded && <StatementTransactionList accountId={account.id} />}
 			</CardContent>
+
+			<ConfirmDialog
+				open={confirmingRemove}
+				onOpenChange={setConfirmingRemove}
+				title={`Remover ${account.bankName}?`}
+				description={
+					<div className="flex flex-col gap-2">
+						<p>
+							A conta e {transactionLabel} serão apagadas, com o saldo guardado. As tags, as dívidas
+							e os holerites continuam, mas os totais deixam de contar essas transações.
+						</p>
+						<p className="font-medium text-foreground">
+							Não dá para desfazer. Para ter as transações de volta, só importando o extrato de
+							novo.
+						</p>
+					</div>
+				}
+				confirmLabel="Remover conta e transações"
+				destructive
+				errorMessage="Erro ao remover conta"
+				onConfirm={handleRemove}
+			/>
 		</Card>
 	)
 }

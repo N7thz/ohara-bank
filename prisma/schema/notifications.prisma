@@ -1,0 +1,18 @@
+/// Avisos mostrados dentro do app (o sino no topo); os mesmos avisos dos e-mails
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String
+  title     String
+  body      String?
+  /// Página aberta ao clicar no aviso
+  href      String?
+  /// Avisos cobertos, no mesmo formato das chaves dos e-mails; evita repetir o aviso
+  keys      String[]
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notification")
+}

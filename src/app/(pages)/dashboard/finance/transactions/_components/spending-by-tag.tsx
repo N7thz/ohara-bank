@@ -3,7 +3,7 @@
 import { TagDot } from '@/components/finance/tag-badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import type { Tag } from '@/hooks/finance/tags'
-import type { TransactionPage } from '@/hooks/finance/transactions'
+import type { TransactionsOverview } from '@/hooks/finance/transactions'
 import { formatCurrency } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -11,8 +11,8 @@ export const UNTAGGED = 'none'
 
 interface SpendingByTagProps {
 	tags: Tag[]
-	byTag: TransactionPage['byTag']
-	untagged: TransactionPage['untagged']
+	byTag: TransactionsOverview['byTag']
+	untagged: TransactionsOverview['untagged']
 	/** Tag filtrada na tabela, ou "none" */
 	activeTagId: string | null
 	onSelect: (tagId: string | null) => void

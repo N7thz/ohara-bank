@@ -62,6 +62,9 @@ export function parseOfx(content: string): ParsedStatement {
 	const balanceDate = parseDate(tag(ledger, 'DTASOF'))
 
 	const transactions: ParsedTransaction[] = []
+	// Sem FITID: compras iguais no mesmo dia ganham a ocorrência no id. A primeira mantém o id
+	// antigo, para reimportar um arquivo já importado não duplicar nada
+	const seen = new Map<string, number>()
 
 	for (const block of blocks(content, 'STMTTRN')) {
 		const date = parseDate(tag(block, 'DTPOSTED'))
@@ -69,8 +72,10 @@ export function parseOfx(content: string): ParsedStatement {
 		if (!date || amount === null) continue
 
 		const description = tag(block, 'MEMO') ?? tag(block, 'NAME') ?? 'Sem descrição'
-		const externalId =
-			tag(block, 'FITID') ?? `${date.toISOString().slice(0, 10)}|${amount}|${description}`
+		const key = `${date.toISOString().slice(0, 10)}|${amount}|${description}`
+		const occurrence = seen.get(key) ?? 0
+		seen.set(key, occurrence + 1)
+		const externalId = tag(block, 'FITID') ?? (occurrence === 0 ? key : `${key}|${occurrence}`)
 
 		transactions.push({ externalId, date, amount, description })
 	}

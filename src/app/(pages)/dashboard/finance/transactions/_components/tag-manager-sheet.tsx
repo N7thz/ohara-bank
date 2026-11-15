@@ -2,10 +2,12 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { isAxiosError } from 'axios'
-import { PlusIcon, TagsIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { CheckIcon, PlusIcon, TagsIcon, Trash2Icon, XIcon } from 'lucide-react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { TAG_COLOR_LABEL, TAG_DOT, TagDot } from '@/components/finance/tag-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -23,6 +25,7 @@ import {
 	InputGroupAddon,
 	InputGroupButton,
 	InputGroupInput,
+	InputGroupText,
 } from '@/components/ui/input-group'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -43,6 +46,8 @@ import {
 	useTags,
 	useUpdateTag,
 } from '@/hooks/finance/tags'
+import { currencyInput, formatCurrencyInput, parseCurrency } from '@/lib/currency-input'
+import { formatCurrency } from '@/lib/format'
 
 function errorMessage(error: unknown, fallback: string) {
 	return (isAxiosError(error) && error.response?.data?.error) || fallback
@@ -101,19 +106,98 @@ function AddForm({ placeholder, label, disabled, onSubmit }: AddFormProps) {
 	)
 }
 
+const budgetFormSchema = z.object({
+	value: z
+		.string()
+		.trim()
+		.refine((value) => value === '' || parseCurrency(value) > 0, 'Valor inválido'),
+})
+
+type BudgetFormData = z.infer<typeof budgetFormSchema>
+
+// Limite de gastos por mês da tag; campo vazio remove o orçamento
+function BudgetForm({ tag }: { tag: Tag }) {
+	const { mutate: updateTag, isPending } = useUpdateTag()
+	const {
+		register,
+		handleSubmit,
+		reset,
+		formState: { errors, isDirty },
+	} = useForm<BudgetFormData>({
+		resolver: zodResolver(budgetFormSchema),
+		defaultValues: { value: tag.monthlyBudget ? currencyInput(tag.monthlyBudget) : '' },
+	})
+	const field = register('value')
+
+	function handleSave({ value }: BudgetFormData) {
+		const monthlyBudget = value === '' ? null : parseCurrency(value)
+		updateTag(
+			{ id: tag.id, monthlyBudget },
+			{
+				onSuccess: () => {
+					reset({ value })
+					toast.success(
+						monthlyBudget === null
+							? `Orçamento de "${tag.name}" removido`
+							: `Orçamento de "${tag.name}": ${formatCurrency(monthlyBudget)} por mês`,
+					)
+				},
+				onError: () => toast.error('Erro ao salvar o orçamento'),
+			},
+		)
+	}
+
+	return (
+		<form onSubmit={handleSubmit(handleSave)}>
+			<InputGroup>
+				<InputGroupAddon>
+					<InputGroupText>R$</InputGroupText>
+				</InputGroupAddon>
+				<InputGroupInput
+					inputMode="decimal"
+					placeholder="Orçamento por mês (opcional)"
+					aria-label={`Orçamento mensal da tag ${tag.name}`}
+					aria-invalid={!!errors.value}
+					disabled={isPending}
+					{...field}
+					onChange={(event) => {
+						event.target.value = formatCurrencyInput(event.target.value)
+						field.onChange(event)
+					}}
+				/>
+				{isDirty && (
+					<InputGroupAddon align="inline-end">
+						<InputGroupButton
+							type="submit"
+							size="icon-xs"
+							aria-label={`Salvar orçamento da tag ${tag.name}`}
+							disabled={isPending}
+						>
+							<CheckIcon />
+						</InputGroupButton>
+					</InputGroupAddon>
+				)}
+			</InputGroup>
+		</form>
+	)
+}
+
 function TagItem({ tag }: { tag: Tag }) {
 	const { mutate: updateTag } = useUpdateTag()
-	const { mutate: deleteTag, isPending: isDeleting } = useDeleteTag()
+	const { mutateAsync: deleteTag } = useDeleteTag()
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
 	const { mutateAsync: createRule, isPending: isCreatingRule } = useCreateTagRule()
 	const { mutate: deleteRule } = useDeleteTagRule()
 
-	function handleDelete() {
-		if (!confirm(`Remover a tag "${tag.name}"? Ela sai de todas as transações.`)) return
-		deleteTag(tag.id, {
-			onSuccess: () => toast.success(`Tag "${tag.name}" removida`),
-			onError: () => toast.error('Erro ao remover tag'),
-		})
+	async function handleDelete() {
+		await deleteTag(tag.id)
+		toast.success(`Tag "${tag.name}" removida`)
 	}
+
+	const usage =
+		tag.transactionCount === 0
+			? 'Ela não está em nenhuma transação.'
+			: `Ela sai de ${tag.transactionCount} ${tag.transactionCount === 1 ? 'transação' : 'transações'}.`
 
 	async function handleAddRule(pattern: string) {
 		try {
@@ -165,8 +249,7 @@ function TagItem({ tag }: { tag: Tag }) {
 					size="icon-xs"
 					aria-label={`Remover tag ${tag.name}`}
 					className="text-muted-foreground hover:text-destructive"
-					disabled={isDeleting}
-					onClick={handleDelete}
+					onClick={() => setConfirmingDelete(true)}
 				>
 					<Trash2Icon />
 				</Button>
@@ -189,6 +272,8 @@ function TagItem({ tag }: { tag: Tag }) {
 						Fora dos totais (transferência entre contas, não é entrada nem gasto)
 					</label>
 				</div>
+				{/* Transferência entre contas não é gasto: orçamento não faz sentido */}
+				{!tag.excludeFromTotals && <BudgetForm tag={tag} />}
 				{tag.rules.length > 0 && (
 					<div className="flex flex-wrap gap-1">
 						{tag.rules.map((rule) => (
@@ -218,11 +303,39 @@ function TagItem({ tag }: { tag: Tag }) {
 					onSubmit={handleAddRule}
 				/>
 			</div>
+
+			<ConfirmDialog
+				open={confirmingDelete}
+				onOpenChange={setConfirmingDelete}
+				title={`Remover a tag "${tag.name}"?`}
+				description={
+					<p>
+						{usage} As transações em si não são apagadas
+						{tag.rules.length > 0 && ' e as regras da tag também somem'}. Para ter a tag de volta, é
+						preciso criá-la e marcar as transações de novo.
+					</p>
+				}
+				confirmLabel="Remover tag"
+				destructive
+				errorMessage="Erro ao remover tag"
+				onConfirm={handleDelete}
+			/>
 		</li>
 	)
 }
 
-export function TagManagerSheet() {
+interface TagManagerSheetProps {
+	/** Rótulo do gatilho (padrão: "Tags") */
+	triggerLabel?: string
+	triggerVariant?: React.ComponentProps<typeof Button>['variant']
+	triggerSize?: React.ComponentProps<typeof Button>['size']
+}
+
+export function TagManagerSheet({
+	triggerLabel = 'Tags',
+	triggerVariant = 'outline',
+	triggerSize,
+}: TagManagerSheetProps) {
 	const { data: tags = [] } = useTags()
 	const { mutateAsync: createTag, isPending } = useCreateTag()
 
@@ -238,9 +351,9 @@ export function TagManagerSheet() {
 
 	return (
 		<Sheet>
-			<SheetTrigger render={<Button variant="outline" />}>
+			<SheetTrigger render={<Button variant={triggerVariant} size={triggerSize} />}>
 				<TagsIcon data-icon="inline-start" />
-				Tags
+				{triggerLabel}
 			</SheetTrigger>
 			<SheetContent className="w-full sm:max-w-md">
 				<SheetHeader>

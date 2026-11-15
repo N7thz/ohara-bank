@@ -1,15 +1,33 @@
 'use client'
 
-import { HandCoinsIcon, ListOrderedIcon, PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import {
+	ChevronDownIcon,
+	HandCoinsIcon,
+	ListOrderedIcon,
+	PencilIcon,
+	PlusIcon,
+	Trash2Icon,
+} from 'lucide-react'
+import Link from 'next/link'
 import { useState } from 'react'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { HeroMetric } from '@/components/finance/hero-metric'
 import { PageHeader } from '@/components/page-header'
 import { PageSection } from '@/components/page-section'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuLabel,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
 	Empty,
 	EmptyContent,
@@ -21,12 +39,15 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { Debt, DebtKind } from '@/hooks/finance/debts'
-import { useDebts, useDeleteDebt } from '@/hooks/finance/debts'
+import { useDebts, useDeleteDebt, useSaveDebt, useSetDebtStatus } from '@/hooks/finance/debts'
+import { useRecurring } from '@/hooks/finance/recurring'
+import { localMonthKey } from '@/lib/dates'
 import { formatCurrency, formatDate, formatPeriodShort } from '@/lib/format'
 import { DebtFormDialog, type DebtFormInitial } from './debt-form-dialog'
-import { DEBT_KIND_LABEL, DEBT_KIND_SECTION, DEBT_STATUS } from './debt-labels'
+import { DEBT_KIND_SECTION, DEBT_OVERRIDE_OPTIONS, DEBT_STATUS } from './debt-labels'
 import { DebtsChart } from './debts-chart'
 import { InstallmentsDialog } from './installments-dialog'
+import { PayoffChart } from './payoff-chart'
 
 const KINDS: DebtKind[] = ['FIXED', 'RECURRING', 'INSTALLMENT']
 
@@ -35,11 +56,76 @@ const isActive = (debt: Debt) => debt.status !== 'finished' && debt.status !== '
 
 /** Quanto falta pagar da dívida no mês atual */
 function dueThisMonth(debt: Debt) {
-	if (!isActive(debt) || debt.status === 'paid') return 0
+	if (!isActive(debt) || debt.status === 'paid' || debt.status === 'skipped') return 0
 	return Math.max(0, debt.amount - debt.paidThisMonth)
 }
 
-const currentMonth = () => new Date().toISOString().slice(0, 7)
+const currentMonth = () => localMonthKey()
+
+// Fixas e recorrentes ativas: a situação do mês pode ser marcada à mão
+function DebtStatusMenu({ debt }: { debt: Debt }) {
+	const { mutate: setStatus, isPending } = useSetDebtStatus()
+	const status = DEBT_STATUS[debt.status]
+
+	if (debt.kind === 'INSTALLMENT' || !isActive(debt)) {
+		return <Badge variant={status.variant}>{status.label}</Badge>
+	}
+
+	function handleChange(value: string) {
+		const option = DEBT_OVERRIDE_OPTIONS.find((item) => item.value === value)
+		if (!option) return
+		const next = option.value === 'auto' ? null : option.value
+		setStatus(
+			{ id: debt.id, status: next },
+			{
+				onSuccess: () =>
+					toast.success(
+						next === null
+							? `"${debt.name}" voltou para a situação automática`
+							: `"${debt.name}" marcada como "${option.label.toLowerCase()}" neste mês`,
+					),
+				onError: () => toast.error('Erro ao mudar a situação'),
+			},
+		)
+	}
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={
+					<button
+						type="button"
+						className="shrink-0 rounded-4xl outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+						aria-label={`Mudar a situação de ${debt.name} neste mês`}
+						disabled={isPending}
+					/>
+				}
+			>
+				<Badge variant={status.variant}>
+					{status.label}
+					<ChevronDownIcon />
+				</Badge>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-52">
+				<DropdownMenuGroup>
+					<DropdownMenuLabel>Situação neste mês</DropdownMenuLabel>
+					<DropdownMenuRadioGroup
+						value={debt.statusOverride ?? 'auto'}
+						onValueChange={handleChange}
+					>
+						{DEBT_OVERRIDE_OPTIONS.map((option) => (
+							<DropdownMenuRadioItem key={option.value} value={option.value}>
+								{option.value === 'auto'
+									? `${option.label} (${DEBT_STATUS[debt.autoStatus].label.toLowerCase()})`
+									: option.label}
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	)
+}
 
 interface DebtCardProps {
 	debt: Debt
@@ -48,19 +134,37 @@ interface DebtCardProps {
 }
 
 function DebtCard({ debt, onEdit, onInstallments }: DebtCardProps) {
-	const { mutate: deleteDebt, isPending: isDeleting } = useDeleteDebt()
-	const status = DEBT_STATUS[debt.status]
+	const [confirmingDelete, setConfirmingDelete] = useState(false)
+	const { mutateAsync: deleteDebt } = useDeleteDebt()
+	const { mutateAsync: saveDebt } = useSaveDebt()
 
-	function handleDelete() {
-		if (!confirm(`Remover a dívida "${debt.name}"? As transações não são apagadas.`)) return
-		deleteDebt(debt.id, {
-			onSuccess: () => toast.success('Dívida removida'),
-			onError: () => toast.error('Erro ao remover a dívida'),
+	async function handleDelete() {
+		await deleteDebt(debt.id)
+		toast.success(`Dívida "${debt.name}" removida`, {
+			duration: 8000,
+			action: {
+				label: 'Desfazer',
+				// Recria com os mesmos dados; só as situações marcadas à mão em cada mês se perdem
+				onClick: () =>
+					saveDebt({
+						name: debt.name,
+						kind: debt.kind,
+						amount: debt.amount,
+						dueDay: debt.dueDay,
+						installments: debt.installments,
+						paidBefore: debt.paidBefore,
+						startMonth: debt.startMonth.slice(0, 7),
+						pattern: debt.pattern,
+					}).then(
+						() => toast.success(`Dívida "${debt.name}" de volta`),
+						() => toast.error('Não foi possível desfazer. Cadastre a dívida de novo.'),
+					),
+			},
 		})
 	}
 
 	return (
-		<Card size="sm" className="hover-lift">
+		<Card size="sm">
 			<CardHeader>
 				<div className="flex items-start justify-between gap-2">
 					<div className="flex min-w-0 flex-col gap-1">
@@ -73,8 +177,14 @@ function DebtCard({ debt, onEdit, onInstallments }: DebtCardProps) {
 							{debt.dueDay && ` · vence dia ${debt.dueDay}`}
 						</CardDescription>
 					</div>
-					<Badge variant={status.variant}>{status.label}</Badge>
+					<DebtStatusMenu debt={debt} />
 				</div>
+				{debt.statusOverride && (
+					<p className="text-xs text-muted-foreground">
+						Marcada à mão neste mês · pelas transações:{' '}
+						{DEBT_STATUS[debt.autoStatus].label.toLowerCase()}
+					</p>
+				)}
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3 text-sm">
 				{debt.kind === 'INSTALLMENT' && debt.installments && (
@@ -120,29 +230,49 @@ function DebtCard({ debt, onEdit, onInstallments }: DebtCardProps) {
 							</>
 						)}
 					</p>
-					<div className="flex shrink-0 gap-1">
+					<div className="flex shrink-0 items-center gap-2">
 						{debt.status !== 'finished' && (
-							<Button variant="outline" size="sm" onClick={onInstallments}>
+							<Button variant="outline" className="h-10 px-3" onClick={onInstallments}>
 								<ListOrderedIcon />
 								{debt.kind === 'INSTALLMENT' ? 'Parcelas' : 'Parcelar'}
 							</Button>
 						)}
-						<Button variant="ghost" size="icon-sm" aria-label="Editar" onClick={onEdit}>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="size-10"
+							aria-label={`Editar ${debt.name}`}
+							onClick={onEdit}
+						>
 							<PencilIcon />
 						</Button>
 						<Button
 							variant="ghost"
-							size="icon-sm"
-							aria-label="Remover"
-							className="text-muted-foreground hover:text-destructive"
-							disabled={isDeleting}
-							onClick={handleDelete}
+							size="icon"
+							className="size-10 text-muted-foreground hover:text-destructive"
+							aria-label={`Remover ${debt.name}`}
+							onClick={() => setConfirmingDelete(true)}
 						>
 							<Trash2Icon />
 						</Button>
 					</div>
 				</div>
 			</CardContent>
+			<ConfirmDialog
+				open={confirmingDelete}
+				onOpenChange={setConfirmingDelete}
+				title={`Remover a dívida "${debt.name}"?`}
+				description={
+					<p>
+						A dívida sai da lista e dos cálculos do mês. As transações do extrato não são apagadas.
+						Você pode desfazer logo depois pelo aviso que aparece.
+					</p>
+				}
+				confirmLabel="Remover dívida"
+				destructive
+				errorMessage="Erro ao remover a dívida"
+				onConfirm={handleDelete}
+			/>
 		</Card>
 	)
 }
@@ -152,12 +282,22 @@ export function DebtsView() {
 	const [form, setForm] = useState<DebtFormInitial | null>(null)
 	const [installmentsDebt, setInstallmentsDebt] = useState<Debt | null>(null)
 
+	const { data: recurring } = useRecurring()
+	const suggestionCount = recurring?.suggestions.length ?? 0
+
 	const debts = data?.debts ?? []
 	const current = data?.months.findLast((month) => month.paid !== null)
 
 	const active = debts.filter(isActive)
 	const paidThisMonth = active.reduce((sum, debt) => sum + debt.paidThisMonth, 0)
 	const dueTotal = active.reduce((sum, debt) => sum + dueThisMonth(debt), 0)
+	const hasOpenInstallments = debts.some(
+		(debt) =>
+			debt.kind === 'INSTALLMENT' &&
+			debt.status !== 'finished' &&
+			debt.endMonth !== null &&
+			(debt.remainingAmount ?? 0) > 0,
+	)
 	const installmentBalance = debts.reduce((sum, debt) => sum + (debt.remainingAmount ?? 0), 0)
 
 	function newDebt() {
@@ -180,6 +320,7 @@ export function DebtsView() {
 			amount: debt.amount,
 			dueDay: debt.dueDay,
 			installments: debt.installments,
+			paidBefore: debt.paidBefore,
 			startMonth: debt.startMonth.slice(0, 7),
 			pattern: debt.pattern,
 		})
@@ -209,7 +350,12 @@ export function DebtsView() {
 										value: current?.expected ?? 0,
 										hint: `${active.length} ${active.length === 1 ? 'dívida ativa' : 'dívidas ativas'}`,
 									},
-									{ label: 'Pago no mês', value: paidThisMonth, className: 'text-green-600' },
+									{
+										label: 'Pago no mês',
+										// Inclui as contas marcadas como pagas por fora do extrato
+										value: current?.paid ?? paidThisMonth,
+										className: 'text-positive',
+									},
 									{
 										label: 'Saldo das parceladas',
 										value: installmentBalance,
@@ -238,14 +384,20 @@ export function DebtsView() {
 						</EmptyMedia>
 						<EmptyTitle>Nenhuma dívida cadastrada</EmptyTitle>
 						<EmptyDescription>
-							Cadastre uma dívida ou use uma das sugestões abaixo, tiradas dos gastos que se repetem
-							todo mês.
+							Cadastre uma dívida à mão ou veja em Recorrentes as saídas que se repetem todo mês.
 						</EmptyDescription>
 					</EmptyHeader>
 					<EmptyContent>
 						<Button onClick={newDebt}>
 							<PlusIcon />
 							Nova dívida
+						</Button>
+						<Button
+							variant="secondary"
+							nativeButton={false}
+							render={<Link href="/dashboard/finance/recurring" />}
+						>
+							Ver Recorrentes
 						</Button>
 					</EmptyContent>
 				</Empty>
@@ -260,6 +412,15 @@ export function DebtsView() {
 				</PageSection>
 			)}
 
+			{hasOpenInstallments && (
+				<PageSection
+					title="Quitação das parceladas"
+					description="Quando você fica livre das parcelas, se não surgir nenhuma nova."
+				>
+					<PayoffChart debts={debts} />
+				</PageSection>
+			)}
+
 			{KINDS.map((kind) => {
 				const items = debts.filter((debt) => debt.kind === kind)
 				if (items.length === 0) return null
@@ -268,7 +429,6 @@ export function DebtsView() {
 						key={kind}
 						title={DEBT_KIND_SECTION[kind].title}
 						description={`${DEBT_KIND_SECTION[kind].description} ${items.length} ${items.length === 1 ? 'dívida' : 'dívidas'}.`}
-						className="reveal"
 					>
 						<div className="stagger grid gap-4 md:grid-cols-2">
 							{items.map((debt) => (
@@ -284,46 +444,20 @@ export function DebtsView() {
 				)
 			})}
 
-			{data && data.suggestions.length > 0 && (
-				<PageSection
-					title="Sugestões"
-					description="Saídas que se repetem em 3 meses ou mais nos últimos 6 e ainda não estão cadastradas."
-					className="reveal"
-				>
-					<ul className="divide-y rounded-xl border bg-card">
-						{data.suggestions.map((suggestion) => (
-							<li key={suggestion.pattern} className="flex items-center gap-3 px-4 py-3 text-sm">
-								<div className="flex min-w-0 flex-1 flex-col">
-									<span className="truncate font-medium" title={suggestion.name}>
-										{suggestion.name}
-									</span>
-									<span className="text-xs text-muted-foreground">
-										{DEBT_KIND_LABEL[suggestion.kind]} · ~{formatCurrency(suggestion.amount)} por
-										mês · em {suggestion.months} meses
-									</span>
-								</div>
-								<Button
-									variant="outline"
-									size="sm"
-									onClick={() =>
-										setForm({
-											name: suggestion.name,
-											kind: suggestion.kind,
-											amount: suggestion.amount,
-											dueDay: suggestion.dueDay,
-											installments: null,
-											startMonth: suggestion.firstMonth,
-											pattern: suggestion.pattern,
-										})
-									}
-								>
-									<PlusIcon />
-									Cadastrar
-								</Button>
-							</li>
-						))}
-					</ul>
-				</PageSection>
+			{suggestionCount > 0 && (
+				<p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+					<span>
+						{suggestionCount}{' '}
+						{suggestionCount === 1 ? 'conta que se repete' : 'contas que se repetem'} ainda não{' '}
+						{suggestionCount === 1 ? 'está cadastrada' : 'estão cadastradas'}.
+					</span>
+					<Link
+						href="/dashboard/finance/recurring"
+						className="font-medium text-primary underline-offset-4 hover:underline"
+					>
+						Ver sugestões em Recorrentes
+					</Link>
+				</p>
 			)}
 
 			<DebtFormDialog initial={form} onClose={() => setForm(null)} />

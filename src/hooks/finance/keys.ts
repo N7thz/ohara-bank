@@ -9,8 +9,11 @@ export const financeKeys = {
 	payslips: () => ['finance', 'payslips'] as const,
 	tags: () => ['finance', 'tags'] as const,
 	transactions: (filters: object) => ['finance', 'transactions', filters] as const,
+	transactionsOverview: (filters: object) => ['finance', 'transactions-overview', filters] as const,
 	summary: (filters: object) => ['finance', 'summary', filters] as const,
+	merchants: (filters: object) => ['finance', 'summary', 'merchants', filters] as const,
 	debts: () => ['finance', 'debts'] as const,
+	recurring: () => ['finance', 'recurring'] as const,
 }
 
 // Contas, tags e dívidas mexem na lista de transações e nos totais, então tudo de finanças recarrega

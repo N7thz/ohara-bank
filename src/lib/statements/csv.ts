@@ -58,7 +58,14 @@ function parseAmount(value: string): number | null {
 		clean = clean.slice(0, -1)
 	} else if (/[Cc]$/.test(clean)) {
 		clean = clean.slice(0, -1)
+	} else if (/\d-$/.test(clean)) {
+		// Sinal no fim: "10,00-"
+		sign = -1
+		clean = clean.slice(0, -1)
 	}
+
+	// Milhar brasileiro sem centavos: "1.234" e "1.234.567" são inteiros, não decimais
+	if (/^-?\d{1,3}(\.\d{3})+$/.test(clean)) return sign * Number(clean.replace(/\./g, ''))
 
 	// Vírgula depois do último ponto = decimal brasileiro
 	const amount =
@@ -236,15 +243,40 @@ function parseNubank(
 	return null
 }
 
+// Coluna "Tipo"/"D/C": valores que definem o sinal (já normalizados)
+const DEBIT_KINDS = new Set(['d', 'db', 'deb', 'debito', 'saida'])
+const CREDIT_KINDS = new Set(['c', 'cr', 'cred', 'credito', 'entrada'])
+
+/** Divide o arquivo em registros; quebra de linha dentro de aspas fica no campo */
+function splitRecords(content: string): string[] {
+	const records: string[] = []
+	let current = ''
+	let quoted = false
+	for (let i = 0; i < content.length; i++) {
+		const char = content[i]
+		if (char === '"') quoted = !quoted
+		if (!quoted && (char === '\n' || char === '\r')) {
+			if (char === '\r' && content[i + 1] === '\n') i++
+			records.push(current)
+			current = ''
+			continue
+		}
+		current += char
+	}
+	records.push(current)
+	return records
+}
+
 function amountFromRow(row: string[], columns: ReturnType<typeof findColumns>): number | null {
 	if (columns.amount >= 0) {
 		const amount = parseAmount(row[columns.amount] ?? '')
 		if (amount === null) return null
 
 		// Coluna "Tipo" com D/C ou Débito/Crédito define o sinal
+		// Só valores exatos: "Compra" ou "Depósito" não começam a decidir o sinal pela 1ª letra
 		const kind = normalize(row[columns.kind] ?? '')
-		if (/^(d|debito|saida)/.test(kind)) return -Math.abs(amount)
-		if (/^(c|credito|entrada)/.test(kind)) return Math.abs(amount)
+		if (DEBIT_KINDS.has(kind)) return -Math.abs(amount)
+		if (CREDIT_KINDS.has(kind)) return Math.abs(amount)
 		return amount
 	}
 
@@ -262,7 +294,7 @@ export class MissingAccountInfoError extends Error {
 }
 
 export function parseCsv(content: string, options: StatementOptions = {}): ParsedStatement {
-	const lines = content.split(/\r?\n/).filter((line) => line.trim())
+	const lines = splitRecords(content).filter((line) => line.trim())
 	if (lines.length === 0) throw new Error('Arquivo CSV vazio')
 
 	const header = findHeader(lines)

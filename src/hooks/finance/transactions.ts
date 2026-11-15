@@ -35,6 +35,10 @@ export interface TransactionPage {
 	pageSize: number
 	/** Entradas (positivo) e saídas (negativo) com os filtros, sem contar o tipo nem as transações fora dos totais */
 	summary: { income: number; expense: number; excludedCount: number }
+}
+
+/** O que não depende da página: /api/finance/transactions/overview */
+export interface TransactionsOverview {
 	/** Meses com transações, do mais recente ao mais antigo (AAAA-MM) */
 	months: string[]
 	/** Totais por tag no período (sem o filtro de tag); uma transação conta em cada tag que tiver */
@@ -60,9 +64,57 @@ export function transactionsQuery(filters: TransactionFilters) {
 	})
 }
 
+export type TransactionsOverviewFilters = Omit<TransactionFilters, 'page' | 'pageSize'>
+
+export function transactionsOverviewQuery(filters: TransactionsOverviewFilters) {
+	return queryOptions({
+		// Sem a página: trocar de página não refaz o resumo
+		queryKey: financeKeys.transactionsOverview(filters),
+		queryFn: async () => {
+			const { data } = await api.get<TransactionsOverview>('/finance/transactions/overview', {
+				params: filters,
+			})
+			return data
+		},
+	})
+}
+
+export function useTransactionsOverview(filters: TransactionsOverviewFilters) {
+	return useQuery({ ...transactionsOverviewQuery(filters), placeholderData: keepPreviousData })
+}
+
 export function useTransactions(filters: TransactionFilters) {
 	// Mantém a página atual na tela enquanto a próxima carrega
 	return useQuery({ ...transactionsQuery(filters), placeholderData: keepPreviousData })
+}
+
+export interface DailySpending {
+	/** AAAA-MM-DD */
+	date: string
+	/** Saídas do dia que contam nos totais, em reais positivos */
+	total: number
+	count: number
+}
+
+/** Os mesmos filtros da lista, menos tipo e página (aqui são sempre as saídas) */
+export type DailySpendingFilters = Pick<TransactionFilters, 'accountId' | 'month' | 'q' | 'tagId'>
+
+/** /api/finance/transactions/daily */
+export function dailySpendingQuery(filters: DailySpendingFilters) {
+	return queryOptions({
+		// Sob 'finance': a invalidação de financeKeys.all também atinge esta consulta
+		queryKey: ['finance', 'transactions', 'daily', filters] as const,
+		queryFn: async () => {
+			const { data } = await api.get<DailySpending[]>('/finance/transactions/daily', {
+				params: filters,
+			})
+			return data
+		},
+	})
+}
+
+export function useDailySpending(filters: DailySpendingFilters) {
+	return useQuery({ ...dailySpendingQuery(filters), placeholderData: keepPreviousData })
 }
 
 export function useSetTransactionTags() {

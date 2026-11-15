@@ -14,6 +14,8 @@ export interface Tag {
 	color: TagColor
 	/** Transferência entre contas e afins: aparece na lista, mas não conta nos totais */
 	excludeFromTotals: boolean
+	/** Limite de gastos por mês; null = sem orçamento */
+	monthlyBudget: number | null
 	rules: { id: string; pattern: string }[]
 	transactionCount: number
 }
@@ -52,6 +54,7 @@ export function useUpdateTag() {
 			name?: string
 			color?: TagColor
 			excludeFromTotals?: boolean
+			monthlyBudget?: number | null
 		}) => {
 			await api.patch(`/finance/tags/${id}`, input)
 		},

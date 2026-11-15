@@ -2,7 +2,7 @@
 
 import { zodResolver } from '@hookform/resolvers/zod'
 import { isAxiosError } from 'axios'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -19,8 +19,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import type { DebtKind } from '@/hooks/finance/debts'
-import { useSaveDebt } from '@/hooks/finance/debts'
-import { currencyInput, formatCurrencyInput, parseCurrency } from './currency-input'
+import { useDebtPatternPreview, useSaveDebt } from '@/hooks/finance/debts'
+import { currencyInput, formatCurrencyInput, parseCurrency } from '@/lib/currency-input'
+import { formatCurrency, formatDate } from '@/lib/format'
 import { DEBT_KIND_LABEL } from './debt-labels'
 
 const isIntBetween = (value: string, min: number, max: number) =>
@@ -40,6 +41,10 @@ const debtSchema = z
 			.trim()
 			.refine((value) => value === '' || isIntBetween(value, 1, 31), 'Dia de 1 a 31'),
 		installments: z.string().trim(),
+		paidBefore: z
+			.string()
+			.trim()
+			.refine((value) => value === '' || isIntBetween(value, 0, 480), 'De 0 a 480'),
 		startMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Informe o mês'),
 		pattern: z
 			.string()
@@ -51,6 +56,13 @@ const debtSchema = z
 		path: ['installments'],
 		message: 'De 1 a 480 parcelas',
 	})
+	.refine(
+		(debt) =>
+			debt.kind !== 'INSTALLMENT' ||
+			debt.paidBefore === '' ||
+			Number(debt.paidBefore) <= Number(debt.installments),
+		{ path: ['paidBefore'], message: 'Mais que o total de parcelas' },
+	)
 
 type DebtFormData = z.infer<typeof debtSchema>
 
@@ -62,6 +74,8 @@ export interface DebtFormInitial {
 	amount: number | null
 	dueDay: number | null
 	installments: number | null
+	/** Parcelas pagas que não aparecem nas transações */
+	paidBefore?: number
 	/** AAAA-MM */
 	startMonth: string
 	pattern: string
@@ -80,9 +94,59 @@ function toFormValues(initial: DebtFormInitial | null): DebtFormData {
 		amount: initial?.amount ? currencyInput(initial.amount) : '',
 		dueDay: initial?.dueDay ? String(initial.dueDay) : '',
 		installments: initial?.installments ? String(initial.installments) : '',
+		paidBefore: initial?.paidBefore ? String(initial.paidBefore) : '',
 		startMonth: initial?.startMonth ?? '',
 		pattern: initial?.pattern ?? '',
 	}
+}
+
+/** Trecho digitado, atualizado só depois que a pessoa para de digitar */
+function useDebounced(value: string, delay = 300) {
+	const [debounced, setDebounced] = useState(value)
+	useEffect(() => {
+		const timer = setTimeout(() => setDebounced(value), delay)
+		return () => clearTimeout(timer)
+	}, [value, delay])
+	return debounced
+}
+
+function PatternPreview({ pattern, startMonth }: { pattern: string; startMonth: string }) {
+	const { data, isFetching, isError } = useDebtPatternPreview(pattern, startMonth)
+
+	return (
+		<div className="flex flex-col gap-1 text-xs" aria-live="polite">
+			{isError && (
+				<p className="text-muted-foreground">Não foi possível conferir o trecho agora.</p>
+			)}
+			{data && data.count === 0 && (
+				<p className="font-medium text-foreground">
+					Nenhuma transação casa com este trecho
+					{startMonth && ' desde o mês inicial'}. Confira a grafia, como aparece no extrato.
+				</p>
+			)}
+			{data && data.count > 0 && (
+				<>
+					<p className="font-medium text-foreground">
+						{data.count} {data.count === 1 ? 'transação casa' : 'transações casam'} com este trecho
+						{isFetching && (
+							<span className="font-normal text-muted-foreground"> · atualizando…</span>
+						)}
+					</p>
+					<ul className="flex flex-col divide-y rounded-md border text-muted-foreground">
+						{data.recent.map((tx) => (
+							<li key={tx.id} className="flex items-center gap-2 px-2 py-1">
+								<span className="shrink-0 tabular-nums">{formatDate(tx.date)}</span>
+								<span className="min-w-0 flex-1 truncate" title={tx.description}>
+									{tx.description}
+								</span>
+								<span className="shrink-0 tabular-nums">{formatCurrency(tx.amount)}</span>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
+		</div>
+	)
 }
 
 const KINDS: DebtKind[] = ['FIXED', 'RECURRING', 'INSTALLMENT']
@@ -113,9 +177,12 @@ export function DebtFormDialog({ initial, onClose }: DebtFormDialogProps) {
 	}, [initial, reset])
 
 	const kind = watch('kind')
+	const patternPreview = useDebounced(watch('pattern').trim())
+	const startMonth = watch('startMonth')
 	const amountField = register('amount')
 	const dueDayField = register('dueDay')
 	const installmentsField = register('installments')
+	const paidBeforeField = register('paidBefore')
 
 	async function onSubmit(data: DebtFormData) {
 		try {
@@ -126,6 +193,7 @@ export function DebtFormDialog({ initial, onClose }: DebtFormDialogProps) {
 				amount: parseCurrency(data.amount),
 				dueDay: data.dueDay ? Number(data.dueDay) : null,
 				installments: data.kind === 'INSTALLMENT' ? Number(data.installments) : null,
+				paidBefore: data.kind === 'INSTALLMENT' && data.paidBefore ? Number(data.paidBefore) : 0,
 				startMonth: data.startMonth,
 				pattern: data.pattern,
 			})
@@ -245,8 +313,33 @@ export function DebtFormDialog({ initial, onClose }: DebtFormDialogProps) {
 						)}
 					</div>
 
+					{kind === 'INSTALLMENT' && (
+						<div className="flex flex-col gap-1.5">
+							<Label htmlFor="debt-paid-before">Parcelas já pagas</Label>
+							<Input
+								id="debt-paid-before"
+								inputMode="numeric"
+								placeholder="0"
+								aria-invalid={!!errors.paidBefore}
+								{...paidBeforeField}
+								onChange={(event) => {
+									event.target.value = event.target.value.replace(/\D/g, '').slice(0, 3)
+									paidBeforeField.onChange(event)
+								}}
+							/>
+							{errors.paidBefore ? (
+								<p className="text-xs text-destructive">{errors.paidBefore.message}</p>
+							) : (
+								<p className="text-xs text-muted-foreground">
+									Pagas antes dos extratos importados ou por fora. As achadas nas transações somam a
+									estas.
+								</p>
+							)}
+						</div>
+					)}
+
 					<div className="flex flex-col gap-1.5">
-						<Label htmlFor="debt-pattern">Trecho da descrição no extrato</Label>
+						<Label htmlFor="debt-pattern">Como o pagamento aparece no extrato</Label>
 						<Input
 							id="debt-pattern"
 							placeholder="Ex.: disney plus"
@@ -257,10 +350,12 @@ export function DebtFormDialog({ initial, onClose }: DebtFormDialogProps) {
 							<p className="text-xs text-destructive">{errors.pattern.message}</p>
 						) : (
 							<p className="text-xs text-muted-foreground">
-								Toda saída cuja descrição contém esse trecho conta como pagamento. Maiúsculas e
-								acentos não importam. Separe com | quando a conta aparece com descrições diferentes
-								(ex.: telefonica|vivo-rj).
+								Digite uma parte do nome que aparece no extrato. Maiúsculas e acentos não importam.
+								Para mais de um nome, separe com | (ex.: telefonica|vivo-rj).
 							</p>
+						)}
+						{patternPreview.length >= 3 && (
+							<PatternPreview pattern={patternPreview} startMonth={startMonth} />
 						)}
 					</div>
 

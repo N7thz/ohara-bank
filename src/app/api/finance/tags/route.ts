@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { auth } from '@/lib/auth'
+import { requireSession } from '@/lib/api-session'
 import { prisma } from '@/lib/prisma'
 import { TAG_COLORS } from '@/lib/tags'
 
@@ -11,10 +11,8 @@ const createSchema = z.object({
 })
 
 export async function GET(request: Request) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
 	const tags = await prisma.tag.findMany({
 		where: { userId: session.user.id },
@@ -31,6 +29,7 @@ export async function GET(request: Request) {
 			name: tag.name,
 			color: tag.color,
 			excludeFromTotals: tag.excludeFromTotals,
+			monthlyBudget: tag.monthlyBudget === null ? null : Number(tag.monthlyBudget),
 			rules: tag.rules,
 			transactionCount: tag._count.transactions,
 		})),
@@ -38,10 +37,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
 	const body = createSchema.safeParse(await request.json().catch(() => null))
 	if (!body.success) {
@@ -69,6 +66,7 @@ export async function POST(request: Request) {
 			name: tag.name,
 			color: tag.color,
 			excludeFromTotals: tag.excludeFromTotals,
+			monthlyBudget: null,
 			rules: [],
 			transactionCount: 0,
 		},

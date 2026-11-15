@@ -1,0 +1,51 @@
+enum DebtKind {
+  /// Mesmo valor todo mês (aluguel, internet, assinatura)
+  FIXED
+  /// Todo mês, mas o valor muda (luz, fatura do cartão)
+  RECURRING
+  /// Número fechado de parcelas (empréstimo, compra parcelada)
+  INSTALLMENT
+}
+
+model Debt {
+  id              String               @id @default(cuid())
+  userId          String
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  kind            DebtKind
+  /// Valor por mês; na parcelada, o valor de cada parcela
+  amount          Decimal              @db.Decimal(14, 2)
+  /// Dia do vencimento (1 a 31)
+  dueDay          Int?
+  /// Total de parcelas (só na parcelada)
+  installments    Int?
+  /// Parcelas já pagas que não aparecem nas transações (antes dos extratos ou por fora)
+  paidBefore      Int                  @default(0)
+  /// Primeiro dia do mês do primeiro vencimento (UTC)
+  startMonth      DateTime
+  /// Trecho da descrição (sem acento, minúsculo) que identifica os pagamentos nas transações
+  pattern         String
+  createdAt       DateTime             @default(now())
+  statusOverrides DebtStatusOverride[]
+
+  @@index([userId])
+  @@map("debt")
+}
+
+/// Situação do mês marcada à mão, no lugar da calculada pelas transações
+enum DebtOverrideStatus {
+  PAID
+  PENDING
+  SKIPPED
+}
+
+model DebtStatusOverride {
+  debtId String
+  debt   Debt               @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  /// Primeiro dia do mês, UTC
+  month  DateTime
+  status DebtOverrideStatus
+
+  @@id([debtId, month])
+  @@map("debt_status_override")
+}

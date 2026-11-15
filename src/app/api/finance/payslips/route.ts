@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server'
-import { auth } from '@/lib/auth'
+import { requireSession } from '@/lib/api-session'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
-	const session = await auth.api.getSession({ headers: request.headers })
-	if (!session) {
-		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-	}
+	const { session, response } = await requireSession(request)
+	if (!session) return response
 
 	const payslips = await prisma.payslip.findMany({
 		where: { userId: session.user.id },

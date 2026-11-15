@@ -1,5 +1,6 @@
-import { center, type PdfItem, type PdfRow, readPdfRows } from '@/lib/pdf'
+import { center, groupRows, type PdfItem, type PdfRow, readPdfItems } from '@/lib/pdf'
 import { hashIds } from './csv'
+import { isItauCardStatement, parseItauCardStatement } from './itau-card-pdf'
 import type { ParsedStatement, ParsedTransaction } from './types'
 
 const DATE = /^(\d{2})\/(\d{2})\/(\d{4})$/
@@ -26,8 +27,14 @@ export function isItauStatement(pages: PdfRow[][]): boolean {
 	return /extrato conta\s*\/\s*lançamentos/i.test(text) && /agência:\s*\d+/i.test(text)
 }
 
-export async function parseItauStatementPdf(buffer: ArrayBuffer): Promise<ParsedStatement | null> {
-	const pages = await readPdfRows(buffer)
+/**
+ * PDF do Itaú: extrato da conta corrente ou fatura do cartão (essa vem com senha, os 5
+ * primeiros dígitos do CPF). null quando o PDF não é de nenhum dos dois
+ */
+export function parseItauStatementItems(items: PdfItem[][]): ParsedStatement | null {
+	if (isItauCardStatement(items)) return parseItauCardStatement(items)
+
+	const pages = items.map(groupRows)
 	if (!isItauStatement(pages)) return null
 
 	const firstPage = pages[0]
@@ -81,4 +88,11 @@ export async function parseItauStatementPdf(buffer: ArrayBuffer): Promise<Parsed
 		balanceDate,
 		transactions: hashIds(parsed),
 	}
+}
+
+export async function parseItauStatementPdf(
+	buffer: ArrayBuffer,
+	password?: string,
+): Promise<ParsedStatement | null> {
+	return parseItauStatementItems(await readPdfItems(buffer, password))
 }

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import type { Prisma } from '../../prisma/generated/client'
+import { normalizeText } from './text'
 
 // Paleta categórica sem vermelho e verde, que já indicam saída e entrada nos valores.
 // A cor só ajuda a reconhecer: o nome da tag aparece sempre ao lado. Tons em globals.css
@@ -17,14 +18,7 @@ export const EXCLUDED_FROM_TOTALS = {
 	tags: { some: { tag: { excludeFromTotals: true } } },
 } satisfies Prisma.TransactionWhereInput
 
-// "Café" e "CAFE" casam com a regra "cafe"
-export function normalizeText(text: string): string {
-	return text
-		.normalize('NFD')
-		.replace(/\p{Diacritic}/gu, '')
-		.toLowerCase()
-		.trim()
-}
+export { normalizeText } from './text'
 
 interface ApplyRulesOptions {
 	userId: string

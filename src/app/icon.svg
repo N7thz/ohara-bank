@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+	<title>Ohara Bank</title>
+	<rect width="64" height="64" rx="15" fill="#5b47e0" />
+	<circle cx="32" cy="32" r="20" fill="none" stroke="#ffffff" stroke-width="6" />
+	<rect x="23.5" y="33" width="5" height="8" rx="1.5" fill="#ffffff" />
+	<rect x="29.5" y="28" width="5" height="13" rx="1.5" fill="#ffffff" />
+	<rect x="35.5" y="23" width="5" height="18" rx="1.5" fill="#ffffff" />
+</svg>

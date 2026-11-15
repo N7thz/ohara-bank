@@ -86,8 +86,8 @@ export function TagSpendingComparison({
 											delta === null || delta === 0
 												? 'text-muted-foreground'
 												: delta > 0
-													? 'text-red-500'
-													: 'text-green-600',
+													? 'text-negative'
+													: 'text-positive',
 										)}
 									>
 										{delta === null

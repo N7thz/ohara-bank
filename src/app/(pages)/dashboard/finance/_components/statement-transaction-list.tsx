@@ -45,8 +45,8 @@ export function StatementTransactionList({ accountId }: StatementTransactionList
 						<span
 							className={
 								tx.amount >= 0
-									? 'shrink-0 font-medium text-green-600 tabular-nums'
-									: 'shrink-0 font-medium text-red-500 tabular-nums'
+									? 'shrink-0 font-medium text-positive tabular-nums'
+									: 'shrink-0 font-medium text-negative tabular-nums'
 							}
 						>
 							{tx.amount >= 0 ? '+' : '-'}
@@ -60,6 +60,7 @@ export function StatementTransactionList({ accountId }: StatementTransactionList
 					variant="ghost"
 					size="sm"
 					className="m-2 self-center"
+					nativeButton={false}
 					render={<Link href={`/dashboard/finance/transactions?accountId=${accountId}`} />}
 				>
 					Ver todas as {data.total} transações

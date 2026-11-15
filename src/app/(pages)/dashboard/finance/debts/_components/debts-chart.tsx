@@ -19,10 +19,10 @@ import {
 	formatPeriodShort,
 } from '@/lib/format'
 
-// Previsto em cinza (referência) e pago na cor de destaque
+// Previsto em neutro (referência, --chart-5) e pago na cor de destaque do tema (--chart-1)
 const chartConfig = {
-	expected: { label: 'Previsto', theme: { light: '#b8b8b8', dark: '#5c5c5c' } },
-	paid: { label: 'Pago', theme: { light: '#2a78d6', dark: '#3987e5' } },
+	expected: { label: 'Previsto', color: 'var(--chart-5)' },
+	paid: { label: 'Pago', color: 'var(--chart-1)' },
 } satisfies ChartConfig
 
 export function DebtsChart({ months }: { months: DebtMonth[] }) {

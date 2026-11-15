@@ -2,6 +2,8 @@ import { center, type PdfItem, type PdfRow, readPdfRows } from '@/lib/pdf'
 
 export type PayslipItemKind = 'EARNING' | 'DEDUCTION'
 
+export type PayslipKind = 'MONTHLY' | 'THIRTEENTH' | 'VACATION'
+
 export interface ParsedPayslipItem {
 	code: string
 	description: string
@@ -15,6 +17,7 @@ export interface ParsedPayslip {
 	employerCnpj: string
 	/** Primeiro dia do mês de competência (UTC) */
 	competence: Date
+	kind: PayslipKind
 	grossAmount: number
 	deductionsAmount: number
 	netAmount: number
@@ -117,8 +120,11 @@ function parseItems(rows: PdfRow[], start: number, end: number): ParsedPayslipIt
 	return items
 }
 
-export async function parsePayslip(buffer: ArrayBuffer): Promise<ParsedPayslip> {
-	const pages = await readPdfRows(buffer)
+export async function parsePayslip(buffer: ArrayBuffer, password?: string): Promise<ParsedPayslip> {
+	return parsePayslipRows(await readPdfRows(buffer, password))
+}
+
+export function parsePayslipRows(pages: PdfRow[][]): ParsedPayslip {
 	const rows = pages[0] ?? []
 
 	if (!isPayslip(pages)) {
@@ -139,15 +145,28 @@ export async function parsePayslip(buffer: ArrayBuffer): Promise<ParsedPayslip> 
 		.join(' ')
 	if (!employerName) throw new Error('Nome do empregador não encontrado no holerite')
 
-	// Competência MM/AAAA (a data de admissão é DD/MM/AAAA e fica de fora)
+	// Competência MM/AAAA (a data de admissão é DD/MM/AAAA e fica de fora); 13/AAAA = 13º salário
 	const competenceMatch = rows
 		.flat()
-		.map((item) => item.text.match(/^(0[1-9]|1[0-2])\/(\d{4})$/))
+		.map((item) => item.text.match(/^(0[1-9]|1[0-3])\/(\d{4})$/))
 		.find(Boolean)
 	if (!competenceMatch) throw new Error('Competência não encontrada no holerite')
+	const month = Number(competenceMatch[1])
 	const competence = new Date(
-		Date.UTC(Number(competenceMatch[2]), Number(competenceMatch[1]) - 1, 1),
+		Date.UTC(Number(competenceMatch[2]), month === 13 ? 11 : month - 1, 1),
 	)
+
+	// Só o cabeçalho (acima da tabela de verbas) conta: "1/3 de férias" pode aparecer num holerite mensal
+	const header = rows
+		.slice(0, Math.max(findRow(rows, /Código.*Descrição/i), 0))
+		.map(rowText)
+		.join('\n')
+
+	const kind: PayslipKind = /f[ée]rias/i.test(header)
+		? 'VACATION'
+		: month === 13 || /13[ºo°]?\s*sal[áa]rio|d[ée]cimo terceiro/i.test(header)
+			? 'THIRTEENTH'
+			: 'MONTHLY'
 
 	const itemsStart = findRow(rows, /Código.*Descrição/i)
 	const totalsTitle = findRow(rows, /Total de Proventos/i)
@@ -210,6 +229,7 @@ export async function parsePayslip(buffer: ArrayBuffer): Promise<ParsedPayslip> 
 		employerName,
 		employerCnpj,
 		competence,
+		kind,
 		grossAmount: toReais(grossAmount),
 		deductionsAmount: toReais(deductionsAmount),
 		netAmount: toReais(netAmount),

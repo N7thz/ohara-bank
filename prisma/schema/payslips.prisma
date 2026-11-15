@@ -1,0 +1,46 @@
+enum PayslipKind {
+  MONTHLY
+  THIRTEENTH
+  VACATION
+}
+
+// Holerite (recibo de pagamento de salário) importado de PDF
+model Payslip {
+  id               String        @id @default(cuid())
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employerName     String
+  employerCnpj     String
+  /// Primeiro dia do mês de competência (UTC)
+  competence       DateTime
+  grossAmount      Decimal       @db.Decimal(14, 2)
+  deductionsAmount Decimal       @db.Decimal(14, 2)
+  netAmount        Decimal       @db.Decimal(14, 2)
+  /// Mensal, 13º ou férias: o mesmo mês pode ter mais de um holerite
+  kind             PayslipKind   @default(MONTHLY)
+  fgtsAmount       Decimal?      @db.Decimal(14, 2)
+  items            PayslipItem[]
+  createdAt        DateTime      @default(now())
+
+  @@unique([userId, employerCnpj, competence, kind, netAmount])
+  @@map("payslip")
+}
+
+enum PayslipItemKind {
+  EARNING
+  DEDUCTION
+}
+
+model PayslipItem {
+  id          String          @id @default(cuid())
+  payslipId   String
+  payslip     Payslip         @relation(fields: [payslipId], references: [id], onDelete: Cascade)
+  code        String
+  description String
+  reference   String?
+  kind        PayslipItemKind
+  amount      Decimal         @db.Decimal(14, 2)
+
+  @@index([payslipId])
+  @@map("payslip_item")
+}

@@ -3,10 +3,12 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { format } from 'date-fns'
 import { FingerprintIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -21,6 +23,8 @@ type NameData = z.infer<typeof nameSchema>
 
 export function PasskeyManager() {
 	const { data: passkeys, isPending } = authClient.useListPasskeys()
+	const [removing, setRemoving] = useState<{ id: string; label: string } | null>(null)
+	const isLast = (passkeys?.length ?? 0) <= 1
 
 	const {
 		register,
@@ -36,7 +40,9 @@ export function PasskeyManager() {
 		const { error } = await authClient.passkey.addPasskey({ name: name || undefined })
 
 		if (error) {
-			if (!('code' in error && error.code === 'AUTH_CANCELLED'))
+			if ('code' in error && error.code === 'SESSION_NOT_FRESH')
+				toast.error('Entre de novo para alterar a segurança da conta: saia e faça login outra vez.')
+			else if (!('code' in error && error.code === 'AUTH_CANCELLED'))
 				toast.error('Não foi possível cadastrar a passkey')
 			return
 		}
@@ -45,21 +51,9 @@ export function PasskeyManager() {
 		toast.success('Passkey cadastrada')
 	}
 
-	async function handleDelete(id: string, label: string) {
-		if ((passkeys?.length ?? 0) <= 1) {
-			const ok = confirm(
-				'Esta é sua única passkey. Sem ela, você só entra com o código do autenticador. Remover mesmo assim?',
-			)
-			if (!ok) return
-		} else if (!confirm(`Remover a passkey "${label}"?`)) {
-			return
-		}
-
+	async function handleDelete({ id }: { id: string }) {
 		const { error } = await authClient.passkey.deletePasskey({ id })
-		if (error) {
-			toast.error('Erro ao remover passkey')
-			return
-		}
+		if (error) throw error
 		toast.success('Passkey removida')
 	}
 
@@ -97,7 +91,8 @@ export function PasskeyManager() {
 										variant="ghost"
 										size="icon"
 										className="text-muted-foreground hover:text-destructive"
-										onClick={() => handleDelete(passkey.id, label)}
+										aria-label={`Remover a passkey ${label}`}
+										onClick={() => setRemoving({ id: passkey.id, label })}
 									>
 										<Trash2Icon className="size-4" />
 									</Button>
@@ -122,6 +117,30 @@ export function PasskeyManager() {
 					{errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
 				</form>
 			</CardContent>
+
+			<ConfirmDialog
+				open={!!removing}
+				onOpenChange={(open) => !open && setRemoving(null)}
+				title={isLast ? 'Remover a única passkey?' : `Remover a passkey "${removing?.label}"?`}
+				description={
+					isLast ? (
+						<p>
+							Esta é a sua única passkey. Sem ela, você só entra com o código do autenticador, e se
+							ele também não estiver à mão, fica sem acesso à conta. Não dá para desfazer; para
+							voltar a usar passkey, é preciso cadastrar de novo.
+						</p>
+					) : (
+						<p>
+							O dispositivo "{removing?.label}" deixa de entrar com esta passkey. Não dá para
+							desfazer; para voltar a usá-lo, cadastre a passkey de novo nele.
+						</p>
+					)
+				}
+				confirmLabel={isLast ? 'Remover mesmo assim' : 'Remover passkey'}
+				destructive
+				errorMessage="Erro ao remover passkey"
+				onConfirm={() => removing && handleDelete(removing)}
+			/>
 		</Card>
 	)
 }
