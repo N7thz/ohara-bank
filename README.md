@@ -1,7 +1,7 @@
 # Ohara Bank
 
 Finanças pessoais para um único usuário: importa extratos, faturas de cartão e holerites, classifica as
-transações com tags e acompanha dívidas e resumos por período. Interface em pt-BR.
+transações com tags e acompanha dívidas, metas de economia e resumos por período. Interface em pt-BR.
 
 ## Requisitos
 
@@ -41,7 +41,7 @@ enviados enquanto o app está rodando, a cada 15 minutos. Configure `SMTP_HOST`,
 - `bun run check` roda typecheck, lint e testes.
 - O schema do Prisma fica dividido por domínio em `prisma/schema/*.prisma` (nunca um arquivo único).
 - Mapa rápido: `src/lib/statements` (leitores de extrato), `src/lib/payslips`, `src/lib/debts`,
-  `src/lib/recurring.ts`, `src/lib/email`, API em `src/app/api/finance`, hooks em `src/hooks`.
+  `src/lib/recurring.ts`, `src/lib/goals.ts`, `src/lib/email`, API em `src/app/api/finance`, hooks em `src/hooks`.
 - Design: [`DESIGN.md`](DESIGN.md). Regras para agentes: [`AGENTS.md`](AGENTS.md).
 
 ## Privacidade
