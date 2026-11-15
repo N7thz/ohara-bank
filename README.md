@@ -10,13 +10,14 @@ transações com tags e acompanha dívidas, metas de economia e resumos por per�
 
 ## Instalação
 
-1. `bun install`
-2. Copie `.env.example` para `.env` e preencha (`BETTER_AUTH_SECRET` com `openssl rand -base64 32`;
+1. `git clone https://github.com/N7thz/ohara-bank.git && cd ohara-bank`
+2. `bun install`
+3. Copie `.env.example` para `.env` e preencha (`BETTER_AUTH_SECRET` com `openssl rand -base64 32`;
    `ADMIN_EMAIL` é o e-mail do único usuário — errar esse valor tranca você fora do app).
-3. `bun run db:migrate`
-4. `bun run db:seed` — cria o usuário e imprime um QR code: escaneie no app autenticador.
-5. `bun run dev` e entre com o código de 6 dígitos do autenticador.
-6. Em Dashboard → Segurança, cadastre uma passkey (passa a ser o login principal; o código fica de reserva).
+4. `bun run db:migrate`
+5. `bun run db:seed` — cria o usuário e imprime um QR code: escaneie no app autenticador.
+6. `bun run dev` e entre com o código de 6 dígitos do autenticador.
+7. Em Dashboard → Segurança, cadastre uma passkey (passa a ser o login principal; o código fica de reserva).
 
 ## Recuperar acesso
 
