@@ -8,7 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useBankAccounts } from '@/hooks/finance/accounts'
 import { usePayslips } from '@/hooks/finance/payslips'
 import { BalanceHistoryChart } from './balance-history-chart'
-import { BankAccountCard } from './bank-account-card'
+import { BankCard } from './bank-account-card'
 import { ImportStatementDropzone } from './import-statement-dropzone'
 import { PayslipChart } from './payslip-chart'
 import { PayslipList } from './payslip-list'
@@ -16,6 +16,9 @@ import { PayslipList } from './payslip-list'
 export function FinanceView() {
 	const { data: accounts = [], isLoading, isError, refetch, isRefetching } = useBankAccounts()
 	const { data: payslips = [] } = usePayslips()
+
+	// Um card por banco: no Itaú, a conta corrente e o cartão ficam juntos
+	const banks = Map.groupBy(accounts, (account) => account.bankName)
 
 	const checkingAccounts = accounts.filter((account) => account.balance !== null)
 	const totalBalance = checkingAccounts.reduce((sum, account) => sum + (account.balance ?? 0), 0)
@@ -65,11 +68,11 @@ export function FinanceView() {
 			{accounts.length > 0 && (
 				<PageSection
 					title="Contas"
-					description={`${accounts.length} ${accounts.length === 1 ? 'conta importada' : 'contas importadas'}, com as últimas transações.`}
+					description={`${banks.size} ${banks.size === 1 ? 'banco' : 'bancos'}, com contas, cartões e as últimas transações.`}
 				>
 					<div className="stagger grid items-start gap-6 md:grid-cols-2">
-						{accounts.map((account) => (
-							<BankAccountCard key={account.id} account={account} />
+						{[...banks].map(([bankName, bankAccounts]) => (
+							<BankCard key={bankName} bankName={bankName} accounts={bankAccounts} />
 						))}
 					</div>
 				</PageSection>
