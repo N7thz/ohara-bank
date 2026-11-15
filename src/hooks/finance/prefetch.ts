@@ -2,6 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query'
 import { debtsQuery } from './debts'
+import { goalsQuery } from './goals'
 import { recurringQuery } from './recurring'
 import { DEFAULT_SUMMARY_FILTERS, summaryQuery } from './summary'
 import { DEFAULT_TRANSACTION_FILTERS, transactionsQuery } from './transactions'
@@ -22,6 +23,9 @@ export function usePrefetchFinancePage() {
 		}
 		if (href === '/dashboard/finance/recurring') {
 			queryClient.prefetchQuery(recurringQuery)
+		}
+		if (href === '/dashboard/finance/goals') {
+			queryClient.prefetchQuery(goalsQuery)
 		}
 	}
 }

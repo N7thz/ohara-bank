@@ -14,6 +14,7 @@ export const financeKeys = {
 	merchants: (filters: object) => ['finance', 'summary', 'merchants', filters] as const,
 	debts: () => ['finance', 'debts'] as const,
 	recurring: () => ['finance', 'recurring'] as const,
+	goals: () => ['finance', 'goals'] as const,
 }
 
 // Contas, tags e dívidas mexem na lista de transações e nos totais, então tudo de finanças recarrega

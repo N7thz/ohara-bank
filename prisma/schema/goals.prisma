@@ -1,0 +1,30 @@
+/// Meta de economia: quanto quer juntar e até quando
+model Goal {
+  id            String             @id @default(cuid())
+  userId        String
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  targetAmount  Decimal            @db.Decimal(14, 2)
+  /// Primeiro dia do mês-alvo (UTC); null = sem prazo
+  targetMonth   DateTime?
+  createdAt     DateTime           @default(now())
+  contributions GoalContribution[]
+
+  @@index([userId])
+  @@map("goal")
+}
+
+/// Dinheiro guardado (positivo) ou retirado (negativo) de uma meta
+model GoalContribution {
+  id        String   @id @default(cuid())
+  goalId    String
+  goal      Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(14, 2)
+  /// Dia, à meia-noite UTC (mesmo formato das transações)
+  date      DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([goalId])
+  @@map("goal_contribution")
+}

@@ -14,6 +14,7 @@ model User {
   payslips         Payslip[]
   tags             Tag[]
   debts            Debt[]
+  goals            Goal[]
   emailSettings    EmailSettings?
   emailLogs        EmailLog[]
   emailKeyClaims   EmailKeyClaim[]

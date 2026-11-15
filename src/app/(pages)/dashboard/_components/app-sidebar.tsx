@@ -7,6 +7,7 @@ import {
 	HandCoinsIcon,
 	LayoutDashboardIcon,
 	LogOutIcon,
+	PiggyBankIcon,
 	RepeatIcon,
 	ShieldCheckIcon,
 } from 'lucide-react'
@@ -40,6 +41,7 @@ const navGroups = [
 			{ label: 'Transações', href: '/dashboard/finance/transactions', icon: ArrowLeftRightIcon },
 			{ label: 'Dívidas', href: '/dashboard/finance/debts', icon: HandCoinsIcon },
 			{ label: 'Recorrentes', href: '/dashboard/finance/recurring', icon: RepeatIcon },
+			{ label: 'Metas', href: '/dashboard/finance/goals', icon: PiggyBankIcon },
 		],
 	},
 	{
